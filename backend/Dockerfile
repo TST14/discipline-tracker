@@ -17,4 +17,4 @@ COPY . .
 # Start the server without running migrations on startup.
 # Migrations should be run manually or via a separate deployment step.
 # Use $PORT if provided, otherwise default to 7860.
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "${PORT:-7860}"]
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-7860}"]
