@@ -634,7 +634,7 @@ alembic upgrade head                # only if models changed
 sudo systemctl restart discipline-api
 ```
 
-**Hugging Face Spaces:** push new commits to the HF Space repo (or set up a sync from GitHub — see HF docs for "Sync from GitHub").
+**Render:** redeploys automatically on every push to `main`.
 
 **Vercel:** redeploys automatically on every push to `main`.
 
