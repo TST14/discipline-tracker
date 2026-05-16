@@ -6,10 +6,9 @@ FROM python:3.11-slim
 
 WORKDIR /code
 
-# Disable IPv6 in the container and configure gai.conf to prefer IPv4
-RUN echo "net.ipv6.conf.all.disable_ipv6 = 1" >> /etc/sysctl.conf && \
-    echo "net.ipv6.conf.default.disable_ipv6 = 1" >> /etc/sysctl.conf && \
-    echo "precedence ::ffff:0:0/96 100" >> /etc/gai.conf
+# Prefer IPv4 over IPv6 for DNS resolution
+ENV PYTHONUNBUFFERED=1
+ENV GLIBC_TUNABLES=gai=ipv4only
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
