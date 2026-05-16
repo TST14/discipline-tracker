@@ -11,7 +11,7 @@ Full stack: **React + Vite** (frontend) · **FastAPI** (backend) · **PostgreSQL
 | Run it on my own laptop / desktop | No | [Part 1 — Local Setup](#part-1--local-setup) |
 | Deploy it online (Vercel + Render) | Render asks for card | [Part 2A — Cloud: Vercel + Render](#part-2a--cloud-vercel--render-easiest) |
 | Deploy it online (Vercel + Oracle Cloud VM) | Oracle asks for card | [Part 2B — Cloud: Vercel + Oracle Cloud VM](#part-2b--cloud-vercel--oracle-cloud-free-vm) |
-| **Deploy online — zero card, completely free** | **No card anywhere** | [Part 2C — Cloud: Vercel + Hugging Face + Supabase](#part-2c--cloud-vercel--hugging-face-spaces--supabase-no-card) |
+| **Deploy online — zero card, completely free** | **No card anywhere** | [Part 2C — Cloud: Vercel + Render + Supabase](#part-2c--cloud-vercel--render--supabase) |
 
 ---
 
