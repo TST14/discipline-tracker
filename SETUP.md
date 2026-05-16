@@ -530,21 +530,21 @@ Then update `VITE_API_URL` in Vercel to `https://api.yourdomain.com` and update 
 
 ---
 
-## Part 2C — Cloud: Vercel + Hugging Face Spaces + Supabase (no card)
+## Part 2C — Cloud: Vercel + Render + Supabase
 
-**Zero credit card anywhere.** All three services have genuine free tiers that don't require payment details.
+This deployment uses Vercel for the frontend, Render for the backend (Docker), and Supabase for Postgres. Keep secrets out of the repository and add them as environment variables in the platform dashboards.
 
-| Service | What it hosts | Free limits |
+| Service | What it hosts | Notes |
 |---|---|---|
-| Supabase | PostgreSQL database | 500 MB storage, 2 projects |
-| Hugging Face Spaces | FastAPI backend (Docker) | 16 GB RAM, sleeps after ~30 min idle |
-| Vercel | React frontend (static) | Unlimited bandwidth on hobby plan |
+| Supabase | PostgreSQL database | Managed Postgres — copy the connection URI as `DATABASE_URL` |
+| Render | FastAPI backend (Docker) | Uses the `backend/Dockerfile`; Render sets `$PORT` at runtime |
+| Vercel | React frontend (static) | Hobby tier is suitable for a static frontend |
 
 ---
 
 ### Step 1 — Create the database on Supabase
 
-1. Go to https://supabase.com → **Start your project** — sign up with GitHub (no card)
+1. Go to https://supabase.com → **Start your project** — sign up with GitHub
 2. Click **New project**
 3. Fill in:
    - **Name**: `discipline-tracker`
@@ -553,71 +553,45 @@ Then update `VITE_API_URL` in Vercel to `https://api.yourdomain.com` and update 
 4. Wait ~1 minute for the project to provision
 5. Go to **Project Settings → Database**
 6. Scroll to **Connection string** → select **URI** tab
-7. Copy the URI — it looks like:
-   ```
-   postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
-   ```
-   This is your `DATABASE_URL`.
+7. Copy the URI — this is your `DATABASE_URL`.
 
 ---
 
-### Step 2 — Deploy the backend on Hugging Face Spaces
+### Step 2 — Deploy the backend on Render (Docker)
 
-Hugging Face Spaces runs Docker containers for free. The `backend/Dockerfile` in this repo is already configured for it (listens on port 7860 as required).
+Render can build your service from the `backend/Dockerfile` in this repo. The `Dockerfile` in `backend/` has been updated to use the `$PORT` environment variable so it works on Render.
 
-1. Go to https://huggingface.co → sign up (no card)
-2. Click your avatar → **New Space**
-3. Fill in:
-   - **Space name**: `discipline-tracker-api`
-   - **SDK**: **Docker**
-   - **Visibility**: Public (required for free tier)
-4. Click **Create Space** — you land on an empty repo page
-5. Clone the Space repo locally:
-   ```bash
-   git clone https://huggingface.co/spaces/YOUR_HF_USERNAME/discipline-tracker-api
-   cd discipline-tracker-api
-   ```
-6. Copy the backend files into it:
-   ```bash
-   cp -r /path/to/discipline-tracker/backend/* .
-   ```
-7. Commit and push:
-   ```bash
-   git add .
-   git commit -m "deploy fastapi backend"
-   git push
-   ```
-8. Hugging Face builds the Docker image automatically. Watch the build log in the Space UI.
+1. Go to https://render.com and sign in (connect your GitHub account)
+2. Click **New** → **Web Service**
+3. Select your GitHub repo and branch (`main`)
+4. Under **Environment**, choose **Docker** (Render will use your `backend/Dockerfile`)
+5. In the **Environment** tab for the service, add the following environment variables:
+   - `DATABASE_URL` = *(your Supabase URI from Step 1)*
+   - `DEBUG` = `false`
+   - `ALLOWED_ORIGINS` = `https://your-app.vercel.app` *(fill in after Step 3)*
+6. Deploy the service — Render builds the Docker image and starts the container. Watch the build logs in the Render Dashboard.
 
-**Set environment secrets** (Space Settings → Repository secrets — these are injected as env vars):
-
-| Secret name | Value |
-|---|---|
-| `DATABASE_URL` | *(your Supabase URI from Step 1)* |
-| `DEBUG` | `false` |
-| `ALLOWED_ORIGINS` | `https://your-app.vercel.app` *(fill in after Step 3)* |
-
-Once deployed, your API is live at:
+Once deployed, your API is live at the Render URL shown in the service dashboard, for example:
 ```
-https://YOUR_HF_USERNAME-discipline-tracker-api.hf.space
+https://discipline-tracker-api.onrender.com
 ```
 
-Verify: `https://YOUR_HF_USERNAME-discipline-tracker-api.hf.space/health`
+Verify: `https://<your-render-service>.onrender.com/health`
 
-> **Sleep behaviour:** The Space goes to sleep after ~30 minutes of inactivity. The first request after sleeping takes 10–20 seconds to wake up. This is normal for the free tier — subsequent requests are instant.
+> Note: Render free tier may spin down services after inactivity; consult Render docs if you need always-on uptime.
 
 ---
 
 ### Step 3 — Deploy the frontend on Vercel
 
-1. Go to https://vercel.com → sign up with GitHub (no card for hobby plan)
+1. Go to https://vercel.com → sign up with GitHub
 2. Click **Add New → Project** → import `discipline-tracker`
 3. Set **Root Directory** to `frontend`
 4. Under **Environment Variables**, add:
 
    | Key | Value |
    |---|---|
-   | `VITE_API_URL` | `https://YOUR_HF_USERNAME-discipline-tracker-api.hf.space` |
+   | `VITE_API_URL` | `https://<your-render-service>.onrender.com` |
 
 5. Click **Deploy**
 6. Copy your Vercel URL (e.g. `https://discipline-tracker-abc.vercel.app`)
@@ -626,12 +600,12 @@ Verify: `https://YOUR_HF_USERNAME-discipline-tracker-api.hf.space/health`
 
 ### Step 4 — Wire CORS
 
-1. In your Hugging Face Space → **Settings → Repository secrets**
+1. In your Render service Dashboard → **Environment**
 2. Update `ALLOWED_ORIGINS` to your actual Vercel URL:
    ```
    https://discipline-tracker-abc.vercel.app
    ```
-3. In the Space → click **Factory reboot** (or push an empty commit) to restart with the new secret
+3. Redeploy the Render service (or trigger a manual deploy) to pick up the new env var
 
 ---
 
@@ -639,10 +613,9 @@ Verify: `https://YOUR_HF_USERNAME-discipline-tracker-api.hf.space/health`
 
 1. Open your Vercel URL
 2. Go to **Configure**, add a habit — if it saves, the full stack is working
-3. Health check: `https://YOUR_HF_USERNAME-discipline-tracker-api.hf.space/health`
+3. Health check: `https://<your-render-service>.onrender.com/health`
 
 ---
-
 ## Future deploys (pulling updates)
 
 Whenever you push changes to GitHub:

@@ -437,7 +437,7 @@ DATABASE_URL=postgresql://user:password@localhost:5432/discipline_tracker
 VITE_API_URL=http://localhost:8000
 ```
 
-In production, `VITE_API_URL` points to the deployed backend. The frontend is a static build (no server needed) and can be deployed on **Vercel** (free, no card). The backend can run on **Hugging Face Spaces** (Docker, free, no card), **Render**, or a self-managed **Oracle Cloud Free VM**. The database is either a managed PostgreSQL service such as **Supabase** (free, no card) or a self-hosted PostgreSQL instance on the VM.
+In production, `VITE_API_URL` points to the deployed backend. The frontend is a static build (no server needed) and can be deployed on **Vercel**. The backend can run on **Render** (Docker), **Hugging Face Spaces** (Docker), or a self-managed **Oracle Cloud Free VM**. The database is either a managed PostgreSQL service such as **Supabase** or a self-hosted PostgreSQL instance on the VM.
 
 ### Auto-docs
 
