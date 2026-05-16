@@ -14,7 +14,11 @@ import models  # noqa: F401, E402 — must import models so their tables registe
 config = context.config
 
 # Override sqlalchemy.url from the app's .env — no duplication needed
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# configparser uses '%' for interpolation, so escape percent signs in encoded URLs.
+database_url = settings.database_url
+if "%" in database_url:
+    database_url = database_url.replace("%", "%%")
+config.set_main_option("sqlalchemy.url", database_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
