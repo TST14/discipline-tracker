@@ -25,6 +25,7 @@ engine = create_engine(
     max_overflow=10,
     pool_timeout=30,
     pool_recycle=1800,  # recycle connections every 30 min to avoid stale sockets
+    connect_args={"tcp_keepalives": True, "tcp_keepalives_idle": 30},
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
