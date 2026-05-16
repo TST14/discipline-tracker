@@ -7,9 +7,6 @@ from sqlalchemy.orm import Session
 from database import engine, Base, get_db
 from routers import habits, entries, todos, analytics
 
-# Create all tables on startup (idempotent; use Alembic for schema migrations)
-Base.metadata.create_all(bind=engine)
-
 # ── Configuration ─────────────────────────────────────────────────────────────
 # Set DEBUG=true in .env for Swagger UI. Always disabled in production.
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
@@ -34,6 +31,16 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
+
+
+@app.on_event("startup")
+def startup_event():
+    """Create database tables on first startup (idempotent)."""
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        print(f"Warning: Could not create tables on startup: {e}")
+
 
 app.include_router(habits.router)
 app.include_router(entries.router)
