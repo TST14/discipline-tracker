@@ -10,8 +10,10 @@ _ENV_FILE = Path(__file__).parent / ".env"
 class Settings(BaseSettings):
     database_url: str
 
-    class Config:
-        env_file = str(_ENV_FILE)
+    model_config = {
+        "extra": "ignore",
+        "env_file": str(_ENV_FILE),
+    }
 
 
 settings = Settings()
