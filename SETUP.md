@@ -6,11 +6,12 @@ Full stack: **React + Vite** (frontend) · **FastAPI** (backend) · **PostgreSQL
 
 ## Choose your setup path
 
-| I want to… | Go to |
-|---|---|
-| Run it on my own laptop / desktop | [Part 1 — Local Setup](#part-1--local-setup) |
-| Deploy it online (Vercel + Render) | [Part 2A — Cloud: Vercel + Render](#part-2a--cloud-vercel--render-easiest) |
-| Deploy it online (Vercel + Oracle Cloud VM) | [Part 2B — Cloud: Vercel + Oracle Cloud VM](#part-2b--cloud-vercel--oracle-cloud-free-vm) |
+| I want to… | Card required? | Go to |
+|---|---|---|
+| Run it on my own laptop / desktop | No | [Part 1 — Local Setup](#part-1--local-setup) |
+| Deploy it online (Vercel + Render) | Render asks for card | [Part 2A — Cloud: Vercel + Render](#part-2a--cloud-vercel--render-easiest) |
+| Deploy it online (Vercel + Oracle Cloud VM) | Oracle asks for card | [Part 2B — Cloud: Vercel + Oracle Cloud VM](#part-2b--cloud-vercel--oracle-cloud-free-vm) |
+| **Deploy online — zero card, completely free** | **No card anywhere** | [Part 2C — Cloud: Vercel + Hugging Face + Supabase](#part-2c--cloud-vercel--hugging-face-spaces--supabase-no-card) |
 
 ---
 
@@ -529,6 +530,119 @@ Then update `VITE_API_URL` in Vercel to `https://api.yourdomain.com` and update 
 
 ---
 
+## Part 2C — Cloud: Vercel + Hugging Face Spaces + Supabase (no card)
+
+**Zero credit card anywhere.** All three services have genuine free tiers that don't require payment details.
+
+| Service | What it hosts | Free limits |
+|---|---|---|
+| Supabase | PostgreSQL database | 500 MB storage, 2 projects |
+| Hugging Face Spaces | FastAPI backend (Docker) | 16 GB RAM, sleeps after ~30 min idle |
+| Vercel | React frontend (static) | Unlimited bandwidth on hobby plan |
+
+---
+
+### Step 1 — Create the database on Supabase
+
+1. Go to https://supabase.com → **Start your project** — sign up with GitHub (no card)
+2. Click **New project**
+3. Fill in:
+   - **Name**: `discipline-tracker`
+   - **Database Password**: choose a strong password and save it
+   - **Region**: closest to you
+4. Wait ~1 minute for the project to provision
+5. Go to **Project Settings → Database**
+6. Scroll to **Connection string** → select **URI** tab
+7. Copy the URI — it looks like:
+   ```
+   postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+   ```
+   This is your `DATABASE_URL`.
+
+---
+
+### Step 2 — Deploy the backend on Hugging Face Spaces
+
+Hugging Face Spaces runs Docker containers for free. The `backend/Dockerfile` in this repo is already configured for it (listens on port 7860 as required).
+
+1. Go to https://huggingface.co → sign up (no card)
+2. Click your avatar → **New Space**
+3. Fill in:
+   - **Space name**: `discipline-tracker-api`
+   - **SDK**: **Docker**
+   - **Visibility**: Public (required for free tier)
+4. Click **Create Space** — you land on an empty repo page
+5. Clone the Space repo locally:
+   ```bash
+   git clone https://huggingface.co/spaces/YOUR_HF_USERNAME/discipline-tracker-api
+   cd discipline-tracker-api
+   ```
+6. Copy the backend files into it:
+   ```bash
+   cp -r /path/to/discipline-tracker/backend/* .
+   ```
+7. Commit and push:
+   ```bash
+   git add .
+   git commit -m "deploy fastapi backend"
+   git push
+   ```
+8. Hugging Face builds the Docker image automatically. Watch the build log in the Space UI.
+
+**Set environment secrets** (Space Settings → Repository secrets — these are injected as env vars):
+
+| Secret name | Value |
+|---|---|
+| `DATABASE_URL` | *(your Supabase URI from Step 1)* |
+| `DEBUG` | `false` |
+| `ALLOWED_ORIGINS` | `https://your-app.vercel.app` *(fill in after Step 3)* |
+
+Once deployed, your API is live at:
+```
+https://YOUR_HF_USERNAME-discipline-tracker-api.hf.space
+```
+
+Verify: `https://YOUR_HF_USERNAME-discipline-tracker-api.hf.space/health`
+
+> **Sleep behaviour:** The Space goes to sleep after ~30 minutes of inactivity. The first request after sleeping takes 10–20 seconds to wake up. This is normal for the free tier — subsequent requests are instant.
+
+---
+
+### Step 3 — Deploy the frontend on Vercel
+
+1. Go to https://vercel.com → sign up with GitHub (no card for hobby plan)
+2. Click **Add New → Project** → import `discipline-tracker`
+3. Set **Root Directory** to `frontend`
+4. Under **Environment Variables**, add:
+
+   | Key | Value |
+   |---|---|
+   | `VITE_API_URL` | `https://YOUR_HF_USERNAME-discipline-tracker-api.hf.space` |
+
+5. Click **Deploy**
+6. Copy your Vercel URL (e.g. `https://discipline-tracker-abc.vercel.app`)
+
+---
+
+### Step 4 — Wire CORS
+
+1. In your Hugging Face Space → **Settings → Repository secrets**
+2. Update `ALLOWED_ORIGINS` to your actual Vercel URL:
+   ```
+   https://discipline-tracker-abc.vercel.app
+   ```
+3. In the Space → click **Factory reboot** (or push an empty commit) to restart with the new secret
+
+---
+
+### Step 5 — Verify
+
+1. Open your Vercel URL
+2. Go to **Configure**, add a habit — if it saves, the full stack is working
+3. Health check: `https://YOUR_HF_USERNAME-discipline-tracker-api.hf.space/health`
+
+---
+
 ## Future deploys (pulling updates)
 
 Whenever you push changes to GitHub:
@@ -546,6 +660,8 @@ pip install -r requirements.txt     # only if requirements changed
 alembic upgrade head                # only if models changed
 sudo systemctl restart discipline-api
 ```
+
+**Hugging Face Spaces:** push new commits to the HF Space repo (or set up a sync from GitHub — see HF docs for "Sync from GitHub").
 
 **Vercel:** redeploys automatically on every push to `main`.
 
