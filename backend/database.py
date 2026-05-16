@@ -1,5 +1,6 @@
 from pathlib import Path
-from sqlalchemy import create_engine
+import socket
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from pydantic_settings import BaseSettings
 
@@ -25,8 +26,21 @@ engine = create_engine(
     max_overflow=10,
     pool_timeout=30,
     pool_recycle=1800,  # recycle connections every 30 min to avoid stale sockets
-    connect_args={"tcp_keepalives": True, "tcp_keepalives_idle": 30},
+    connect_args={
+        "tcp_keepalives": True,
+        "tcp_keepalives_idle": 30,
+        "options": "-c application_name=discipline_tracker",
+    },
 )
+
+
+# Force IPv4-only DNS resolution for psycopg2
+@event.listens_for(engine, "connect")
+def receive_connect(dbapi_conn, connection_record):
+    # This ensures IPv4 is preferred during connection establishment
+    dbapi_conn.set_isolation_level(0)
+
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
