@@ -248,11 +248,9 @@ cd frontend && npm run dev
    | `ALLOWED_ORIGINS` | `https://your-app.vercel.app` *(update after Step 3)* |
 
 5. Click **Deploy**. First build takes 2–3 minutes.
-6. Once live, open the Render **Shell** tab and run the migration:
-   ```bash
-   alembic upgrade head
-   ```
-7. Copy your service URL — e.g. `https://discipline-tracker-api.onrender.com`
+6. Copy your service URL — e.g. `https://discipline-tracker-api.onrender.com`
+
+> **Migrations run automatically.** The Docker container runs `alembic upgrade head` before starting the server on every deploy, so schema changes are applied without any manual steps.
 
 Verify: `https://discipline-tracker-api.onrender.com/health` → `{"status":"ok","database":"ok"}`
 
@@ -304,11 +302,7 @@ If you see a CORS error: double-check `ALLOWED_ORIGINS` on Render matches the Ve
 
 Both Render and Vercel redeploy automatically on every push to `main`.
 
-If you change `models.py` (database schema), run the migration after deploy:
-```bash
-# In Render → your service → Shell tab
-alembic upgrade head
-```
+Migrations also run automatically on each Render deploy — no manual steps needed.
 
 ---
 
