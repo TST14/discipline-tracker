@@ -13,9 +13,15 @@ def _build_days(
     habits: list,
     entries_by_date: dict,
     task_entries_by_date: dict,
-) -> list[dict]:
-    """Compute per-day stats from pre-fetched, grouped data (no per-day DB queries)."""
+) -> tuple[list[dict], list[dict]]:
+    """Compute per-day stats from pre-fetched, grouped data (no per-day DB queries).
+
+    Returns (days, todos) where todos is a deduplicated list of every todo
+    that was worked on at least once across the period.
+    """
     days = []
+    todos_seen: dict[int, dict] = {}
+
     for day in all_dates:
         entries = entries_by_date.get(day, [])
         task_entries = task_entries_by_date.get(day, [])
@@ -35,8 +41,32 @@ def _build_days(
                 "pct": pct,
             })
 
-        task_earned = sum(float(e.earned_points or 0) for e in task_entries)
-        task_max = sum(int(e.todo.max_points or 0) for e in task_entries)
+        task_earned_map: dict[int, float] = {}
+        for e in task_entries:
+            tid = e.todo_id
+            task_earned_map[tid] = float(e.earned_points or 0)
+            if tid not in todos_seen:
+                todos_seen[tid] = {
+                    "id": tid,
+                    "title": e.todo.title,
+                    "max": int(e.todo.max_points or 0),
+                }
+
+        task_scores = [
+            {
+                "todo_id": tid,
+                "title": todos_seen[tid]["title"],
+                "earned": round(earned, 2),
+                "max": todos_seen[tid]["max"],
+                "done": earned > 0,
+                "pct": round(earned / todos_seen[tid]["max"] * 100, 1)
+                       if todos_seen[tid]["max"] > 0 else 0.0,
+            }
+            for tid, earned in task_earned_map.items()
+        ]
+
+        task_earned = sum(task_earned_map.values())
+        task_max = sum(todos_seen[tid]["max"] for tid in task_earned_map)
 
         total_earned = sum(s["earned"] for s in habit_scores) + task_earned
         total_max = sum(h.max_points for h in habits) + task_max
@@ -48,8 +78,10 @@ def _build_days(
             "total_max": total_max,
             "percentage": percentage,
             "habit_scores": habit_scores,
+            "task_scores": task_scores,
         })
-    return days
+
+    return days, list(todos_seen.values())
 
 
 def _fetch_period(all_dates: list[date], db: Session) -> tuple[dict, dict]:
@@ -111,12 +143,13 @@ def weekly_analytics(date: date = Query(...), db: Session = Depends(get_db)):
         .all()
     )
     entries_by_date, task_entries_by_date = _fetch_period(all_dates, db)
-    days = _build_days(all_dates, habits, entries_by_date, task_entries_by_date)
+    days, todos = _build_days(all_dates, habits, entries_by_date, task_entries_by_date)
 
     return {
         "start_date": monday.isoformat(),
         "end_date": (monday + timedelta(days=6)).isoformat(),
         "habits": [{"id": h.id, "name": h.name, "max": h.max_points} for h in habits],
+        "todos": todos,
         "days": days,
         "summary": _period_summary(days),
     }
@@ -135,12 +168,13 @@ def monthly_analytics(year: int, month: int, db: Session = Depends(get_db)):
         .all()
     )
     entries_by_date, task_entries_by_date = _fetch_period(all_dates, db)
-    days = _build_days(all_dates, habits, entries_by_date, task_entries_by_date)
+    days, todos = _build_days(all_dates, habits, entries_by_date, task_entries_by_date)
 
     return {
         "year": year,
         "month": month,
         "habits": [{"id": h.id, "name": h.name, "max": h.max_points} for h in habits],
+        "todos": todos,
         "days": days,
         "summary": _period_summary(days),
     }

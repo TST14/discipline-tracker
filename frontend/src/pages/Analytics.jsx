@@ -70,7 +70,7 @@ function WeeklyView() {
   if (error)   return <ErrorState message={error} />
   if (!data)   return null
 
-  const { days, habits, summary } = data
+  const { days, habits, todos = [], summary } = data
 
   return (
     <div className="space-y-5">
@@ -112,7 +112,7 @@ function WeeklyView() {
         <table className="w-full text-xs lg:text-sm">
           <thead>
             <tr className="border-b border-gray-800">
-              <th className="text-left px-4 lg:px-6 py-3 lg:py-4 text-gray-500 font-medium w-36 lg:w-48">Habit</th>
+              <th className="text-left px-4 lg:px-6 py-3 lg:py-4 text-gray-500 font-medium w-36 lg:w-48">Habits</th>
               {days.map((d, i) => (
                 <th key={i}
                   className={`px-2 py-3 text-center font-medium ${d.date === today ? 'text-white' : 'text-gray-500'}`}>
@@ -141,6 +141,33 @@ function WeeklyView() {
                 })}
               </tr>
             ))}
+
+            {/* Tasks section separator + rows */}
+            {todos.length > 0 && (
+              <>
+                <tr className="border-t-2 border-gray-700">
+                  <td colSpan={8} className="px-4 lg:px-6 py-2 text-xs font-semibold text-gray-500 tracking-wider bg-gray-800/30">
+                    Tasks
+                  </td>
+                </tr>
+                {todos.map(todo => (
+                  <tr key={todo.id} className="border-b border-gray-800/40 last:border-0">
+                    <td className="px-4 lg:px-6 py-2.5 lg:py-3 text-gray-300 font-medium max-w-[140px] lg:max-w-[200px] truncate">{todo.title}</td>
+                    {days.map((d, i) => {
+                      const ts  = d.task_scores?.find(s => s.todo_id === todo.id)
+                      const pct = ts?.pct ?? 0
+                      return (
+                        <td key={i} className="px-2 py-2.5 text-center">
+                          <span className={`inline-block px-2 py-1 rounded text-xs font-medium min-w-[42px] ${ts?.done ? pctColor(pct) : 'bg-gray-800 text-gray-500'}`}>
+                            {ts?.done ? `${pct}%` : '—'}
+                          </span>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </>
+            )}
 
             {/* Per-day total row */}
             <tr className="border-t border-gray-700 bg-gray-800/50">
@@ -308,6 +335,51 @@ function MonthlyView() {
                   <div className="text-sm font-medium text-white truncate">{habit.name}</div>
                   <div className="text-xs text-gray-500 mt-0.5">
                     Logged {daysLogged}/{days.length} days · {daysHit} days ≥ 80%
+                  </div>
+                </div>
+                {/* Progress bar */}
+                <div className="w-full sm:w-32 flex-shrink-0">
+                  <div className="flex justify-between text-xs text-gray-500 mb-1">
+                    <span>{totalEarned.toFixed(0)} pts</span>
+                    <span>{pct}%</span>
+                  </div>
+                  <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-yellow-500' : pct > 0 ? 'bg-orange-500' : 'bg-gray-700'
+                      }`}
+                      style={{ width: `${Math.min(pct, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Per-todo monthly breakdown */}
+      {data.todos && data.todos.length > 0 && (
+        <div className="bg-gray-900 rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-800">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Task Breakdown</span>
+          </div>
+          {data.todos.map(todo => {
+            const daysLogged  = days.filter(d => d.task_scores?.find(s => s.todo_id === todo.id && s.done)).length
+            const totalEarned = days.reduce((sum, d) => {
+              const s = d.task_scores?.find(s => s.todo_id === todo.id)
+              return sum + (s?.earned ?? 0)
+            }, 0)
+            const totalMax = daysLogged * todo.max
+            const pct = totalMax > 0 ? Math.round(totalEarned / totalMax * 100) : 0
+
+            return (
+              <div key={todo.id}
+                className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4 px-4 py-3 border-b border-gray-800/50 last:border-0">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-white truncate">{todo.title}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    Logged {daysLogged} day{daysLogged !== 1 ? 's' : ''}
                   </div>
                 </div>
                 {/* Progress bar */}

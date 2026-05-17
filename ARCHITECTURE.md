@@ -214,7 +214,7 @@ Each router file owns one resource domain:
 | GET    | `/analytics/weekly`   | 7-day data for the week containing `?date=`     |
 | GET    | `/analytics/monthly`  | All days in `?year=&month=`                     |
 
-Both return: per-day earned/max/percentage, per-habit scores, and a period summary (avg %, best day, days ≥ 80%).
+Both return: per-day earned/max/percentage, per-habit scores (`habit_scores[]`), per-task scores (`task_scores[]`), a deduplicated `todos[]` list of every task worked on in the period, and a period summary (avg %, best day, days ≥ 80%). Task points are included in the day totals.
 
 ### Scoring Engine
 
@@ -270,7 +270,7 @@ No routing library is used (React Router etc.) — the app is small enough that 
 | File                  | Tab       | Responsibility                                                |
 |-----------------------|-----------|---------------------------------------------------------------|
 | `DailyLog.jsx`        | Today     | Load habits + entries for selected date, auto-save on change  |
-| `Analytics.jsx`       | Progress  | Weekly heatmap grid + monthly calendar with score %          |
+| `Analytics.jsx`       | Progress  | Weekly heatmap grid (habits + tasks) + monthly calendar with score % and per-habit/task breakdowns |
 | `TaskList.jsx`        | Tasks     | CRUD for to-do items, filter by status                       |
 | `HabitSettings.jsx`   | Configure | CRUD for habits + inline scoring rules editor                |
 
@@ -352,7 +352,8 @@ routers/analytics.py
   │     queries daily_entries + daily_task_entries
   │     builds habit_scores[] per habit
   │     calculates percentage
-  └── Returns { days[], habits[], summary{} }
+  └── Returns { days[], habits[], todos[], summary{} }
+  │     each day includes habit_scores[] and task_scores[]
   │
   ▼
 React renders heatmap table + summary cards
