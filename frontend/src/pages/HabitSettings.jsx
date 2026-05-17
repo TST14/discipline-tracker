@@ -100,15 +100,16 @@ function RulesEditor({ habit, onClose }) {
           {rules.map((rule, idx) => (
             <div key={idx} className="grid grid-cols-[120px_100px_32px] gap-2 items-center">
               <input
-                type={isDurationLinear ? 'number' : 'time'}
-                min={isDurationLinear ? 0 : undefined}
+                type={isDurationLinear ? 'text' : 'time'}
+                inputMode={isDurationLinear ? 'numeric' : undefined}
+                pattern={isDurationLinear ? '[0-9]*' : undefined}
                 value={rule.value}
                 onChange={e => updateRule(idx, 'value', e.target.value)}
                 className="bg-gray-700 border border-gray-600 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500"
               />
               <div className="relative">
                 <input
-                  type="number" min="0" max="100"
+                  type="text" inputMode="numeric" pattern="[0-9]*"
                   value={rule.percentage}
                   onChange={e => updateRule(idx, 'percentage', parseInt(e.target.value, 10))}
                   className="bg-gray-700 border border-gray-600 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500 w-full pr-5"
@@ -141,14 +142,15 @@ function RulesEditor({ habit, onClose }) {
                 {Object.entries(CONDITION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
               <input
-                type={habit.scoring_type === 'time_of_day' ? 'time' : 'number'}
-                min={habit.scoring_type === 'duration' ? 0 : undefined}
+                type={habit.scoring_type === 'time_of_day' ? 'time' : 'text'}
+                inputMode={habit.scoring_type === 'time_of_day' ? undefined : 'numeric'}
+                pattern={habit.scoring_type === 'time_of_day' ? undefined : '[0-9]*'}
                 value={rule.value}
                 onChange={e => updateRule(idx, 'value', e.target.value)}
                 className="bg-gray-700 border border-gray-600 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500"
               />
               <div className="relative">
-                <input type="number" min="0" max="100" value={rule.percentage}
+                <input type="text" inputMode="numeric" pattern="[0-9]*" value={rule.percentage}
                   onChange={e => updateRule(idx, 'percentage', parseInt(e.target.value, 10))}
                   className="bg-gray-700 border border-gray-600 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500 w-full pr-5" />
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 text-xs">%</span>
@@ -200,7 +202,13 @@ function HabitForm({ initial, onSave, onCancel }) {
   }
 
   return (
-    <div className="bg-gray-800 rounded-xl p-4 space-y-3">
+    // draggable={false} + onDragStart stop prevents the parent draggable row from
+    // intercepting touch-taps inside inputs on mobile, which would block cursor placement.
+    <div
+      className="bg-gray-800 rounded-xl p-4 space-y-3"
+      draggable={false}
+      onDragStart={e => e.stopPropagation()}
+    >
       <h3 className="text-sm font-semibold text-white">{initial ? 'Edit Habit' : 'New Habit'}</h3>
 
       <div className="grid grid-cols-2 gap-3">
@@ -212,7 +220,7 @@ function HabitForm({ initial, onSave, onCancel }) {
         </div>
         <div>
           <label className="block text-xs text-gray-400 mb-1">Max Points (Weightage)</label>
-          <input type="number" min="0" value={form.max_points}
+          <input type="text" inputMode="numeric" pattern="[0-9]*" value={form.max_points}
             onChange={e => setForm(p => ({ ...p, max_points: parseInt(e.target.value, 10) || 0 }))}
             className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-gray-500" />
         </div>
@@ -417,6 +425,11 @@ export default function HabitSettings() {
           habits.map((habit, idx) => {
             const badge = SCORING_TYPE_BADGE[habit.scoring_type] || SCORING_TYPE_BADGE.boolean
             const isDropTarget = dragOverIdx === idx
+            // Disable drag on the row while it has an open edit form or rules panel —
+            // a draggable parent intercepts touch-taps in child inputs on mobile,
+            // preventing cursor placement inside text fields.
+            const isExpanded = (editingHabit && editingHabit !== 'new' && editingHabit.id === habit.id)
+                             || rulesHabit?.id === habit.id
             const actionButtons = (
               <div className="flex items-center gap-1">
                 <button
@@ -446,7 +459,7 @@ export default function HabitSettings() {
               <div
                 key={habit.id}
                 data-drag-idx={idx}
-                draggable
+                draggable={!isExpanded}
                 onDragStart={(e) => handleDragStart(e, idx)}
                 onDragOver={(e)  => handleDragOver(e, idx)}
                 onDrop={(e)      => handleDrop(e, idx)}
