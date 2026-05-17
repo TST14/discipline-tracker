@@ -14,7 +14,7 @@ const INPUT_CLS =
  *   isSaving    — boolean, shows pulsing dot while saving
  *   onChange    — (field, value) => void
  */
-export default function HabitRow({ habit, entry, isSaving, onChange }) {
+export default function HabitRow({ habit, entry, isSaving, onChange, onClear }) {
   const type = habit.scoring_type
 
   // ── Time-of-day (single time input) ──────────────────────────────
@@ -37,6 +37,10 @@ export default function HabitRow({ habit, entry, isSaving, onChange }) {
         <div className="w-16 text-right text-sm flex-shrink-0">
           <ScoreBadge earned={entry.earned_points} max={habit.max_points} />
         </div>
+        {entry.start_time && onClear && (
+          <button onClick={onClear} title="Clear entry"
+            className="text-gray-600 hover:text-red-400 transition-colors text-sm font-bold flex-shrink-0">✕</button>
+        )}
       </div>
     )
   }
@@ -70,6 +74,7 @@ export default function HabitRow({ habit, entry, isSaving, onChange }) {
   // ── Duration (start / end / mins) ────────────────────────────────
   // Mobile: name + score on top row, three inputs on bottom row.
   // sm+: everything in one horizontal row (original layout).
+  const hasData = !!(entry.start_time || entry.end_time || entry.duration_minutes)
   return (
     <div className="px-4 lg:px-6 py-3 lg:py-4 border-b border-gray-800/50 last:border-0 hover:bg-gray-800/30 transition-colors">
       {/* Mobile-only top row: habit name + score badge */}
@@ -78,8 +83,12 @@ export default function HabitRow({ habit, entry, isSaving, onChange }) {
           <span className="text-sm font-medium text-white truncate">{habit.name}</span>
           {isSaving && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />}
         </div>
-        <div className="text-sm flex-shrink-0 ml-3">
-          <ScoreBadge earned={entry.earned_points} max={habit.max_points} />
+        <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+          <div className="text-sm"><ScoreBadge earned={entry.earned_points} max={habit.max_points} /></div>
+          {hasData && onClear && (
+            <button onClick={onClear} title="Clear entry"
+              className="text-gray-600 hover:text-red-400 transition-colors text-sm font-bold">✕</button>
+          )}
         </div>
       </div>
 
@@ -93,10 +102,14 @@ export default function HabitRow({ habit, entry, isSaving, onChange }) {
         <input type="time" value={entry.start_time || ''} onChange={e => onChange('start_time', e.target.value)} className={`${INPUT_CLS} flex-1 sm:flex-none sm:w-[90px] lg:w-[110px]`} />
         <input type="time" value={entry.end_time || ''} onChange={e => onChange('end_time', e.target.value)} className={`${INPUT_CLS} flex-1 sm:flex-none sm:w-[90px] lg:w-[110px]`} />
         <input type="number" min="0" value={entry.duration_minutes ?? ''} onChange={e => onChange('duration_minutes', e.target.value)} placeholder="mins" className={`${INPUT_CLS} w-14 lg:w-20 text-center`} />
-        {/* Score — hidden on mobile (shown above), visible on sm+ */}
+        {/* Score + clear — hidden on mobile (shown above), visible on sm+ */}
         <div className="hidden sm:block w-16 text-right text-sm flex-shrink-0">
           <ScoreBadge earned={entry.earned_points} max={habit.max_points} />
         </div>
+        {hasData && onClear && (
+          <button onClick={onClear} title="Clear entry"
+            className="hidden sm:block text-gray-600 hover:text-red-400 transition-colors text-sm font-bold flex-shrink-0">✕</button>
+        )}
       </div>
     </div>
   )

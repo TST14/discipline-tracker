@@ -184,7 +184,9 @@ function RulesEditor({ habit, onClose }) {
 
 function HabitForm({ initial, onSave, onCancel }) {
   const [form, setForm] = useState(
-    initial || { name: '', max_points: 10, scoring_type: 'boolean', display_order: 0, is_active: true }
+    initial
+      ? { ...initial, max_points: String(initial.max_points) }
+      : { name: '', max_points: '10', scoring_type: 'boolean', display_order: 0, is_active: true }
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -194,7 +196,7 @@ function HabitForm({ initial, onSave, onCancel }) {
     setSaving(true)
     setError(null)
     try {
-      await onSave(form)
+      await onSave({ ...form, max_points: parseInt(form.max_points, 10) || 0 })
     } catch {
       setError('Failed to save habit.')
       setSaving(false)
@@ -221,7 +223,10 @@ function HabitForm({ initial, onSave, onCancel }) {
         <div>
           <label className="block text-xs text-gray-400 mb-1">Max Points (Weightage)</label>
           <input type="text" inputMode="numeric" pattern="[0-9]*" value={form.max_points}
-            onChange={e => setForm(p => ({ ...p, max_points: parseInt(e.target.value, 10) || 0 }))}
+            onChange={e => {
+              const raw = e.target.value.replace(/[^0-9]/g, '')
+              setForm(p => ({ ...p, max_points: raw === '' ? '' : String(parseInt(raw, 10)) }))
+            }}
             className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-gray-500" />
         </div>
         <div>

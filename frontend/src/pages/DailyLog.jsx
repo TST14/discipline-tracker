@@ -6,7 +6,7 @@
  */
 import { useEffect, useState, useCallback } from 'react'
 import dayjs from 'dayjs'
-import { getEntries, upsertEntry, getDailySummary } from '../api/entries'
+import { getEntries, upsertEntry, deleteEntry, getDailySummary } from '../api/entries'
 import { getHabits } from '../api/habits'
 import { getTodos, getTaskEntries, upsertTaskEntry, deleteTaskEntry } from '../api/todos'
 import HabitRow from '../components/HabitRow'
@@ -138,6 +138,21 @@ export default function DailyLog() {
     }
   }
 
+  const handleClearEntry = async (habitId) => {
+    const entry = entries[habitId]
+    if (!entry?.id) return
+    setSaving(prev => ({ ...prev, [habitId]: true }))
+    try {
+      await deleteEntry(entry.id)
+      setEntries(prev => { const n = { ...prev }; delete n[habitId]; return n })
+      setSummary(await getDailySummary(date))
+    } catch {
+      setError('Failed to clear entry.')
+    } finally {
+      setSaving(prev => ({ ...prev, [habitId]: false }))
+    }
+  }
+
   const pickTodo = async (todo) => {
     try {
       const saved = await upsertTaskEntry({ todo_id: todo.id, entry_date: date })
@@ -230,6 +245,7 @@ export default function DailyLog() {
                 entry={entries[habit.id] || {}}
                 isSaving={!!saving[habit.id]}
                 onChange={(field, value) => handleFieldChange(habit.id, field, value)}
+                onClear={entries[habit.id]?.id ? () => handleClearEntry(habit.id) : undefined}
               />
             ))
           )}

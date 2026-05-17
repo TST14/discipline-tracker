@@ -18,7 +18,7 @@ function EditTodoForm({ todo, onSave, onCancel }) {
   const [form, setForm] = useState({
     title: todo.title,
     description: todo.description || '',
-    max_points: todo.max_points,
+    max_points: String(todo.max_points),
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -27,7 +27,7 @@ function EditTodoForm({ todo, onSave, onCancel }) {
     if (!form.title.trim()) { setError('Title is required.'); return }
     setSaving(true)
     try {
-      await onSave(todo.id, form)
+      await onSave(todo.id, { ...form, max_points: parseInt(form.max_points, 10) || 0 })
     } catch {
       setError('Failed to save.')
       setSaving(false)
@@ -46,8 +46,11 @@ function EditTodoForm({ todo, onSave, onCancel }) {
         className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-gray-500 resize-none" />
       <div>
         <label className="block text-xs text-gray-400 mb-1">Max Points (0 = untracked)</label>
-        <input type="number" min="0" value={form.max_points}
-          onChange={e => setForm(p => ({ ...p, max_points: parseInt(e.target.value, 10) || 0 }))}
+        <input type="text" inputMode="numeric" pattern="[0-9]*" value={form.max_points}
+          onChange={e => {
+            const raw = e.target.value.replace(/[^0-9]/g, '')
+            setForm(p => ({ ...p, max_points: raw === '' ? '' : String(parseInt(raw, 10)) }))
+          }}
           className="w-32 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-gray-500" />
       </div>
       {error && <p className="text-xs text-red-400">{error}</p>}
@@ -63,7 +66,7 @@ function EditTodoForm({ todo, onSave, onCancel }) {
 }
 
 function AddTodoForm({ onSave, onCancel }) {
-  const [form, setForm] = useState({ title: '', description: '', max_points: 0 })
+  const [form, setForm] = useState({ title: '', description: '', max_points: '0' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
@@ -71,7 +74,7 @@ function AddTodoForm({ onSave, onCancel }) {
     if (!form.title.trim()) { setError('Title is required.'); return }
     setSaving(true)
     try {
-      await onSave(form)
+      await onSave({ ...form, max_points: parseInt(form.max_points, 10) || 0 })
     } catch {
       setError('Failed to save.')
       setSaving(false)
@@ -90,8 +93,11 @@ function AddTodoForm({ onSave, onCancel }) {
         className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-gray-500 resize-none" />
       <div>
         <label className="block text-xs text-gray-400 mb-1">Max Points (0 = untracked)</label>
-        <input type="number" min="0" value={form.max_points}
-          onChange={e => setForm(p => ({ ...p, max_points: parseInt(e.target.value, 10) || 0 }))}
+        <input type="text" inputMode="numeric" pattern="[0-9]*" value={form.max_points}
+          onChange={e => {
+            const raw = e.target.value.replace(/[^0-9]/g, '')
+            setForm(p => ({ ...p, max_points: raw === '' ? '' : String(parseInt(raw, 10)) }))
+          }}
           className="w-32 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-gray-500" />
       </div>
       {error && <p className="text-xs text-red-400">{error}</p>}
