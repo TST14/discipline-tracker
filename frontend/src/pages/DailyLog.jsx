@@ -160,6 +160,28 @@ export default function DailyLog() {
   }
 
   // ── render ─────────────────────────────────────────────────────────────────
+
+  // Habits with a start_time logged today → sorted by that time (ascending).
+  // Habits without a start_time → keep configure order, shown after timed ones.
+  const sortedHabits = [...habits].sort((a, b) => {
+    const aTime = entries[a.id]?.start_time
+    const bTime = entries[b.id]?.start_time
+    if (aTime && bTime) return aTime.localeCompare(bTime)
+    if (aTime) return -1
+    if (bTime) return 1
+    return 0  // both untimed: preserve original display_order from backend
+  })
+
+  // Same logic for task entries: sort by start_time if logged, else by todo's display_order.
+  const sortedTaskEntries = [...taskEntries].sort((a, b) => {
+    const aTime = a.start_time
+    const bTime = b.start_time
+    if (aTime && bTime) return aTime.localeCompare(bTime)
+    if (aTime) return -1
+    if (bTime) return 1
+    return (a.todo_display_order ?? 0) - (b.todo_display_order ?? 0)
+  })
+
   return (
     <div className="space-y-6">
 
@@ -202,7 +224,7 @@ export default function DailyLog() {
               No habits configured. Go to <strong>Configure</strong> to add your first habit.
             </div>
           ) : (
-            habits.map(habit => (
+            sortedHabits.map(habit => (
               <HabitRow
                 key={habit.id} habit={habit}
                 entry={entries[habit.id] || {}}
@@ -255,7 +277,7 @@ export default function DailyLog() {
                 <div className="text-right">Points</div><div />
               </div>
 
-              {taskEntries.map(te => (
+              {sortedTaskEntries.map(te => (
                 <div key={te.id}
                   className="px-4 py-3 border-b border-gray-800/50 last:border-0 hover:bg-gray-800/30 transition-colors">
 

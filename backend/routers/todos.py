@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from database import get_db
 from models import Todo, DailyTaskEntry
-from schemas import TodoCreate, TodoUpdate, TodoOut, TaskEntryUpsert, TaskEntryOut
+from schemas import TodoCreate, TodoUpdate, TodoOut, TaskEntryUpsert, TaskEntryOut, ReorderRequest
 
 router = APIRouter(prefix="/todos", tags=["todos"])
 
@@ -25,7 +25,7 @@ def _parse_time(s: str | None) -> dtime | None:
 
 @router.get("", response_model=list[TodoOut])
 def list_todos(status: str | None = Query(None), db: Session = Depends(get_db)):
-    q = db.query(Todo).order_by(Todo.created_at.desc())
+    q = db.query(Todo).order_by(Todo.display_order)
     if status:
         q = q.filter(Todo.status == status)
     return q.all()
@@ -33,11 +33,20 @@ def list_todos(status: str | None = Query(None), db: Session = Depends(get_db)):
 
 @router.post("", response_model=TodoOut, status_code=201)
 def create_todo(payload: TodoCreate, db: Session = Depends(get_db)):
-    todo = Todo(**payload.model_dump())
+    next_order = db.query(Todo).count()
+    todo = Todo(**payload.model_dump(), display_order=next_order)
     db.add(todo)
     db.commit()
     db.refresh(todo)
     return todo
+
+
+@router.put("/reorder")
+def reorder_todos(payload: ReorderRequest, db: Session = Depends(get_db)):
+    for order, todo_id in enumerate(payload.ordered_ids):
+        db.query(Todo).filter(Todo.id == todo_id).update({"display_order": order})
+    db.commit()
+    return {"ok": True}
 
 
 @router.put("/{todo_id}", response_model=TodoOut)

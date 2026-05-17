@@ -12,6 +12,9 @@ export const updateTodo = (id, data) =>
 export const deleteTodo = (id) =>
   api.delete(`/todos/${id}`).then(r => r.data)
 
+export const reorderTodos = (orderedIds) =>
+  api.put('/todos/reorder', { ordered_ids: orderedIds }).then(r => r.data)
+
 export const getTaskEntries = (date) =>
   api.get('/todos/entries', { params: { date } }).then(r => r.data)
 

@@ -14,7 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Start the server without running migrations on startup.
-# Migrations should be run manually or via a separate deployment step.
-# Use $PORT if provided, otherwise default to 7860.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port ${PORT:-7860}"]
+# Boot sequence:
+#  1. create_all        — ensures all tables exist (idempotent, safe on every start)
+#  2. alembic upgrade   — applies any pending schema migrations (IF NOT EXISTS guards)
+#  3. uvicorn           — starts the API server
+# Use $PORT if provided (Render sets it), otherwise default to 7860.
+CMD ["sh", "-c", "python -c 'import models; from database import engine, Base; Base.metadata.create_all(bind=engine)' && alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port ${PORT:-7860}"]

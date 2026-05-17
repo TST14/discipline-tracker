@@ -3,9 +3,9 @@
  *
  * Manages habits (CRUD) and their scoring rules.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import {
-  getHabits, createHabit, updateHabit, deleteHabit,
+  getHabits, createHabit, updateHabit, deleteHabit, reorderHabits,
   getScoringRules, setScoringRules,
 } from '../api/habits'
 
@@ -284,6 +284,55 @@ export default function HabitSettings() {
     }
   }
 
+  const moveHabit = async (idx, direction) => {
+    const swapped = [...habits]
+    const target = idx + direction
+    if (target < 0 || target >= swapped.length) return
+    ;[swapped[idx], swapped[target]] = [swapped[target], swapped[idx]]
+    setHabits(swapped)
+    try {
+      await reorderHabits(swapped.map(h => h.id))
+    } catch {
+      setError('Failed to reorder habits.')
+      await load()
+    }
+  }
+
+  // ── drag-and-drop reorder ──────────────────────────────────────────────────
+  const dragIdx       = useRef(null)
+  const [dragOverIdx, setDragOverIdx] = useState(null)
+
+  const handleDragStart = (e, idx) => {
+    dragIdx.current = idx
+    e.dataTransfer.effectAllowed = 'move'
+  }
+  const handleDragOver = (e, idx) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (dragIdx.current !== idx) setDragOverIdx(idx)
+  }
+  const handleDrop = async (e, idx) => {
+    e.preventDefault()
+    const from = dragIdx.current
+    dragIdx.current = null
+    setDragOverIdx(null)
+    if (from === null || from === idx) return
+    const reordered = [...habits]
+    const [moved] = reordered.splice(from, 1)
+    reordered.splice(idx, 0, moved)
+    setHabits(reordered)
+    try {
+      await reorderHabits(reordered.map(h => h.id))
+    } catch {
+      setError('Failed to reorder habits.')
+      await load()
+    }
+  }
+  const handleDragEnd = () => {
+    dragIdx.current = null
+    setDragOverIdx(null)
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -308,11 +357,50 @@ export default function HabitSettings() {
             No habits yet. Click <strong>+ Add Habit</strong> to get started.
           </div>
         ) : (
-          habits.map(habit => {
+          habits.map((habit, idx) => {
             const badge = SCORING_TYPE_BADGE[habit.scoring_type] || SCORING_TYPE_BADGE.boolean
+            const isDropTarget = dragOverIdx === idx
             return (
-              <div key={habit.id} className={`border-b border-gray-800/50 last:border-0 ${!habit.is_active ? 'opacity-50' : ''}`}>
+              <div
+                key={habit.id}
+                draggable
+                onDragStart={(e) => handleDragStart(e, idx)}
+                onDragOver={(e)  => handleDragOver(e, idx)}
+                onDrop={(e)      => handleDrop(e, idx)}
+                onDragEnd={handleDragEnd}
+                className={`transition-colors
+                  ${isDropTarget
+                    ? 'border-t-2 border-t-blue-500 bg-blue-950/20'
+                    : 'border-b border-gray-800/50 last:border-0'
+                  }
+                  ${!habit.is_active ? 'opacity-50' : ''}
+                `}
+              >
                 <div className="flex items-center gap-3 px-4 lg:px-6 py-3 lg:py-4">
+
+                  {/* Drag handle + reorder buttons */}
+                  <div className="flex flex-col items-center gap-0.5 flex-shrink-0 select-none">
+                    <span
+                      title="Drag to reorder"
+                      className="text-gray-500 hover:text-gray-300 cursor-grab active:cursor-grabbing text-base leading-none mb-0.5"
+                    >
+                      ⠿
+                    </span>
+                    <button
+                      onClick={() => moveHabit(idx, -1)}
+                      disabled={idx === 0}
+                      title="Move up"
+                      className="text-gray-600 hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed leading-none text-xs transition-colors">
+                      ▲
+                    </button>
+                    <button
+                      onClick={() => moveHabit(idx, 1)}
+                      disabled={idx === habits.length - 1}
+                      title="Move down"
+                      className="text-gray-600 hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed leading-none text-xs transition-colors">
+                      ▼
+                    </button>
+                  </div>
 
                   {/* Active toggle */}
                   <button

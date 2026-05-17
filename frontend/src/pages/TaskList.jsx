@@ -3,8 +3,8 @@
  *
  * Manage to-do items: add, filter by status, mark done/skip/reopen, delete.
  */
-import { useEffect, useState } from 'react'
-import { getTodos, createTodo, updateTodo, deleteTodo } from '../api/todos'
+import { useEffect, useState, useRef } from 'react'
+import { getTodos, createTodo, updateTodo, deleteTodo, reorderTodos } from '../api/todos'
 
 const STATUS_CONFIG = {
   pending: { label: 'Pending', color: 'bg-yellow-900 text-yellow-300',   dot: 'bg-yellow-400' },
@@ -59,21 +59,25 @@ function AddTodoForm({ onSave, onCancel }) {
 }
 
 export default function TaskList() {
-  const [todos, setTodos] = useState([])
+  const [todos, setTodos] = useState([])   // full list, always unfiltered
   const [filter, setFilter] = useState('all')
   const [showForm, setShowForm] = useState(false)
   const [error, setError] = useState(null)
 
+  // drag-and-drop
+  const dragIdx       = useRef(null)
+  const [dragOverIdx, setDragOverIdx] = useState(null)
+
   const load = async () => {
     try {
       setError(null)
-      setTodos(await getTodos(filter === 'all' ? null : filter))
+      setTodos(await getTodos())  // always load all — filter client-side
     } catch {
       setError('Could not connect to backend.')
     }
   }
 
-  useEffect(() => { load() }, [filter])
+  useEffect(() => { load() }, [])
 
   const handleCreate = async (form) => {
     await createTodo(form)
@@ -100,6 +104,52 @@ export default function TaskList() {
     }
   }
 
+  const moveTodo = async (idx, direction) => {
+    const swapped = [...todos]
+    const target = idx + direction
+    if (target < 0 || target >= swapped.length) return
+    ;[swapped[idx], swapped[target]] = [swapped[target], swapped[idx]]
+    setTodos(swapped)
+    try {
+      await reorderTodos(swapped.map(t => t.id))
+    } catch {
+      setError('Failed to reorder tasks.')
+      await load()
+    }
+  }
+
+  const handleDragStart = (e, idx) => {
+    dragIdx.current = idx
+    e.dataTransfer.effectAllowed = 'move'
+  }
+  const handleDragOver = (e, idx) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (dragIdx.current !== idx) setDragOverIdx(idx)
+  }
+  const handleDrop = async (e, idx) => {
+    e.preventDefault()
+    const from = dragIdx.current
+    dragIdx.current = null
+    setDragOverIdx(null)
+    if (from === null || from === idx) return
+    const reordered = [...todos]
+    const [moved] = reordered.splice(from, 1)
+    reordered.splice(idx, 0, moved)
+    setTodos(reordered)
+    try {
+      await reorderTodos(reordered.map(t => t.id))
+    } catch {
+      setError('Failed to reorder tasks.')
+      await load()
+    }
+  }
+  const handleDragEnd = () => {
+    dragIdx.current = null
+    setDragOverIdx(null)
+  }
+
+  const filteredTodos = filter === 'all' ? todos : todos.filter(t => t.status === filter)
   const counts = todos.reduce((acc, t) => { acc[t.status] = (acc[t.status] || 0) + 1; return acc }, {})
 
   return (
@@ -133,16 +183,46 @@ export default function TaskList() {
 
       {/* Task list */}
       <div className="bg-gray-900 rounded-xl overflow-hidden">
-        {todos.length === 0 ? (
+        {filteredTodos.length === 0 ? (
           <div className="px-6 py-12 text-center text-gray-500 text-sm">
             {filter === 'all' ? 'No tasks yet. Click + New Task to add one.' : `No ${filter} tasks.`}
           </div>
         ) : (
-          todos.map(todo => {
+          filteredTodos.map((todo, idx) => {
             const cfg = STATUS_CONFIG[todo.status] || STATUS_CONFIG.pending
+            const showReorder = filter === 'all'
+            const isDropTarget = showReorder && dragOverIdx === idx
             return (
               <div key={todo.id}
-                className={`flex items-start gap-3 px-4 lg:px-6 py-3 lg:py-4 border-b border-gray-800/50 last:border-0 ${todo.status === 'skipped' ? 'opacity-50' : ''}`}>
+                draggable={showReorder}
+                onDragStart={showReorder ? (e) => handleDragStart(e, idx) : undefined}
+                onDragOver={showReorder  ? (e) => handleDragOver(e, idx)  : undefined}
+                onDrop={showReorder      ? (e) => handleDrop(e, idx)      : undefined}
+                onDragEnd={showReorder   ? handleDragEnd                  : undefined}
+                className={`flex items-start gap-3 px-4 lg:px-6 py-3 lg:py-4 transition-colors
+                  ${isDropTarget
+                    ? 'border-t-2 border-t-blue-500 bg-blue-950/20'
+                    : 'border-b border-gray-800/50 last:border-0'
+                  }
+                  ${todo.status === 'skipped' ? 'opacity-50' : ''}
+                `}>
+
+                {/* Drag handle + reorder buttons — only in 'all' view */}
+                {showReorder && (
+                  <div className="flex flex-col items-center gap-0.5 flex-shrink-0 select-none mt-0.5">
+                    <span title="Drag to reorder"
+                      className="text-gray-500 hover:text-gray-300 cursor-grab active:cursor-grabbing text-base leading-none mb-0.5">
+                      ⠿
+                    </span>
+                    <button onClick={() => moveTodo(idx, -1)} disabled={idx === 0}
+                      title="Move up"
+                      className="text-gray-600 hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed leading-none text-xs transition-colors">▲</button>
+                    <button onClick={() => moveTodo(idx, 1)} disabled={idx === todos.length - 1}
+                      title="Move down"
+                      className="text-gray-600 hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed leading-none text-xs transition-colors">▼</button>
+                  </div>
+                )}
+
                 <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${cfg.dot}`} />
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm font-medium ${todo.status === 'done' ? 'line-through text-gray-500' : 'text-white'}`}>

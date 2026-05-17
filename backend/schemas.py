@@ -125,6 +125,7 @@ class TodoOut(BaseModel):
     description: Optional[str] = None
     max_points: int
     status: str
+    display_order: int
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -157,6 +158,7 @@ class TaskEntryOut(BaseModel):
     earned_points: Optional[float] = None
     todo_title: Optional[str] = None
     todo_max_points: Optional[int] = None
+    todo_display_order: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
@@ -172,4 +174,5 @@ class TaskEntryOut(BaseModel):
             earned_points=float(entry.earned_points) if entry.earned_points is not None else None,
             todo_title=entry.todo.title if entry.todo else None,
             todo_max_points=entry.todo.max_points if entry.todo else None,
+            todo_display_order=entry.todo.display_order if entry.todo else None,
         )
