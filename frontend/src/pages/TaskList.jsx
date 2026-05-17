@@ -14,6 +14,54 @@ const STATUS_CONFIG = {
 
 const FILTERS = ['all', 'pending', 'done', 'skipped']
 
+function EditTodoForm({ todo, onSave, onCancel }) {
+  const [form, setForm] = useState({
+    title: todo.title,
+    description: todo.description || '',
+    max_points: todo.max_points,
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  const submit = async () => {
+    if (!form.title.trim()) { setError('Title is required.'); return }
+    setSaving(true)
+    try {
+      await onSave(todo.id, form)
+    } catch {
+      setError('Failed to save.')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="bg-gray-800 border border-gray-600 rounded-xl p-4 space-y-3">
+      <h3 className="text-sm font-semibold text-white">Edit Task</h3>
+      <input type="text" placeholder="Task title" value={form.title}
+        onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
+        className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-gray-500" />
+      <textarea placeholder="Description (optional)" value={form.description}
+        onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
+        rows={2}
+        className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-gray-500 resize-none" />
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Max Points (0 = untracked)</label>
+        <input type="number" min="0" value={form.max_points}
+          onChange={e => setForm(p => ({ ...p, max_points: parseInt(e.target.value, 10) || 0 }))}
+          className="w-32 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-gray-500" />
+      </div>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      <div className="flex justify-end gap-2 pt-1">
+        <button onClick={onCancel} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">Cancel</button>
+        <button onClick={submit} disabled={saving}
+          className="px-4 py-2 text-sm bg-white text-gray-900 rounded-lg font-medium hover:bg-gray-100 transition-colors disabled:opacity-50">
+          {saving ? 'Saving…' : 'Save Changes'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function AddTodoForm({ onSave, onCancel }) {
   const [form, setForm] = useState({ title: '', description: '', max_points: 0 })
   const [saving, setSaving] = useState(false)
@@ -62,6 +110,7 @@ export default function TaskList() {
   const [todos, setTodos] = useState([])   // full list, always unfiltered
   const [filter, setFilter] = useState('all')
   const [showForm, setShowForm] = useState(false)
+  const [editingTodo, setEditingTodo] = useState(null)
   const [error, setError] = useState(null)
 
   // drag-and-drop
@@ -83,6 +132,12 @@ export default function TaskList() {
   const handleCreate = async (form) => {
     await createTodo(form)
     setShowForm(false)
+    await load()
+  }
+
+  const handleEdit = async (id, form) => {
+    await updateTodo(id, form)
+    setEditingTodo(null)
     await load()
   }
 
@@ -244,6 +299,16 @@ export default function TaskList() {
             const cfg = STATUS_CONFIG[todo.status] || STATUS_CONFIG.pending
             const showReorder = filter === 'all'
             const isDropTarget = showReorder && dragOverIdx === idx
+            const isEditing = editingTodo?.id === todo.id
+            if (isEditing) return (
+              <div key={todo.id} className="border-b border-gray-800/50 last:border-0 px-4 lg:px-6 py-3">
+                <EditTodoForm
+                  todo={editingTodo}
+                  onSave={handleEdit}
+                  onCancel={() => setEditingTodo(null)}
+                />
+              </div>
+            )
             return (
               <div key={todo.id}
                 data-drag-idx={idx}
@@ -304,6 +369,12 @@ export default function TaskList() {
                     <button onClick={() => handleStatus(todo, 'skipped')} title="Skip"
                       className="px-2 py-1 text-xs text-gray-400 hover:text-gray-300 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">–</button>
                   )}
+                  <button onClick={() => setEditingTodo(todo)} title="Edit task"
+                    className="px-2 py-1 text-xs text-gray-400 hover:text-blue-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M13.586 3.586a2 2 0 112.828 2.828l-9 9A2 2 0 016 16H4a1 1 0 01-1-1v-2a2 2 0 01.586-1.414l9-9z" />
+                    </svg>
+                  </button>
                   <button onClick={() => handleDelete(todo)}
                     className="px-2 py-1 text-xs text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-gray-800 rounded-lg transition-colors">✕</button>
                 </div>
