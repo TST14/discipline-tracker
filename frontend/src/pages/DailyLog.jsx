@@ -104,19 +104,28 @@ export default function DailyLog() {
   }
 
   const handleTaskFieldChange = async (taskEntry, field, value) => {
+    const scoringType = taskEntry.todo_scoring_type || 'boolean'
+    const isTimeEvent = scoringType === 'time_of_day' || scoringType === 'time_of_day_linear'
     const updated = { ...taskEntry, [field]: value || null }
 
-    if (field === 'end_time' && updated.start_time && value) {
-      const diff = timeToMinutes(value) - timeToMinutes(updated.start_time)
-      if (diff > 0) updated.duration_minutes = diff
-    }
-    if (field === 'start_time' && updated.end_time && value) {
-      const diff = timeToMinutes(updated.end_time) - timeToMinutes(value)
-      if (diff > 0) updated.duration_minutes = diff
-    }
-    if (field === 'duration_minutes' && updated.start_time && value) {
-      const dur = parseInt(value, 10)
-      if (!isNaN(dur) && dur > 0) updated.end_time = minutesToTime(timeToMinutes(updated.start_time) + dur)
+    if (isTimeEvent) {
+      // Time-of-day: only start_time matters — clear everything else
+      updated.end_time = null
+      updated.duration_minutes = null
+    } else {
+      // Duration: auto-compute the third field when two are known
+      if (field === 'end_time' && updated.start_time && value) {
+        const diff = timeToMinutes(value) - timeToMinutes(updated.start_time)
+        if (diff > 0) updated.duration_minutes = diff
+      }
+      if (field === 'start_time' && updated.end_time && value) {
+        const diff = timeToMinutes(updated.end_time) - timeToMinutes(value)
+        if (diff > 0) updated.duration_minutes = diff
+      }
+      if (field === 'duration_minutes' && updated.start_time && value) {
+        const dur = parseInt(value, 10)
+        if (!isNaN(dur) && dur > 0) updated.end_time = minutesToTime(timeToMinutes(updated.start_time) + dur)
+      }
     }
 
     setTaskEntries(prev => prev.map(t => t.id === taskEntry.id ? updated : t))
@@ -287,60 +296,97 @@ export default function DailyLog() {
             </div>
           ) : (
             <>
-              {/* Column headers — only visible on sm+ */}
-              <div className="hidden sm:grid grid-cols-[1fr_90px_90px_70px_80px_32px] gap-2 px-4 py-3 border-b border-gray-800 text-xs font-medium text-gray-400 uppercase tracking-wider">
-                <div>Task</div><div>Start</div><div>End</div><div>Mins</div>
-                <div className="text-right">Points</div><div />
-              </div>
+              {sortedTaskEntries.map(te => {
+                const scoringType = te.todo_scoring_type || 'boolean'
+                const isTimeOnly  = scoringType === 'time_of_day' || scoringType === 'time_of_day_linear'
+                const isDuration  = scoringType === 'duration'    || scoringType === 'duration_linear'
+                const isBoolean   = !isTimeOnly && !isDuration
+                const isDone      = te.start_time != null || te.duration_minutes != null
+                const INPUT_CLS   = 'bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500'
 
-              {sortedTaskEntries.map(te => (
+                return (
                 <div key={te.id}
                   className="px-4 py-3 border-b border-gray-800/50 last:border-0 hover:bg-gray-800/30 transition-colors">
 
-                  {/* ── Mobile card layout ── */}
-                  <div className="sm:hidden space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-sm font-medium text-white truncate">{te.todo_title}</span>
+                  {/* ── Boolean ── toggle button */}
+                  {isBoolean && (
+                    <div className="flex items-center gap-3">
+                      <div className="flex flex-1 items-center gap-2 min-w-0">
+                        <span className="text-sm lg:text-base font-medium text-white truncate">{te.todo_title}</span>
                         {savingTask[te.id] && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />}
                       </div>
-                      <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                        <div className="text-sm"><ScoreBadge earned={te.earned_points} max={te.todo_max_points} /></div>
-                        <button onClick={() => removeTaskEntry(te)}
-                          className="text-gray-600 hover:text-red-400 transition-colors text-sm font-bold" title="Remove from today">✕</button>
-                      </div>
+                      <button
+                        onClick={() => handleTaskFieldChange(te, 'start_time', isDone ? '' : dayjs().format('HH:mm'))}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex-shrink-0 ${
+                          isDone
+                            ? 'bg-emerald-900 text-emerald-300 hover:bg-emerald-800'
+                            : 'bg-gray-800 text-gray-500 hover:bg-gray-700 hover:text-white border border-dashed border-gray-700'
+                        }`}
+                      >
+                        {isDone ? '✓ Done' : 'Mark done'}
+                      </button>
+                      <div className="text-sm flex-shrink-0"><ScoreBadge earned={te.earned_points} max={te.todo_max_points} /></div>
+                      <button onClick={() => removeTaskEntry(te)}
+                        className="text-gray-600 hover:text-red-400 transition-colors text-sm font-bold flex-shrink-0" title="Remove from today">✕</button>
                     </div>
-                    <div className="flex gap-2">
-                      <input type="time" value={te.start_time || ''} onChange={e => handleTaskFieldChange(te, 'start_time', e.target.value)}
-                        className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500" />
-                      <input type="time" value={te.end_time || ''} onChange={e => handleTaskFieldChange(te, 'end_time', e.target.value)}
-                        className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500" />
-                      <input type="number" min="0" value={te.duration_minutes ?? ''} onChange={e => handleTaskFieldChange(te, 'duration_minutes', e.target.value)}
-                        placeholder="mins" className="w-16 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500 text-center" />
-                    </div>
-                  </div>
+                  )}
 
-                  {/* ── Desktop grid layout ── */}
-                  <div className="hidden sm:grid grid-cols-[1fr_90px_90px_70px_80px_32px] gap-2 items-center">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-white">{te.todo_title}</span>
-                      {savingTask[te.id] && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />}
+                  {/* ── Time of day ── single time input */}
+                  {isTimeOnly && (
+                    <div className="flex items-center gap-3">
+                      <div className="flex flex-1 items-center gap-2 min-w-0">
+                        <span className="text-sm lg:text-base font-medium text-white truncate">{te.todo_title}</span>
+                        {savingTask[te.id] && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />}
+                      </div>
+                      <span className="text-xs text-gray-500 flex-shrink-0">Time</span>
+                      <input type="time" value={te.start_time || ''}
+                        onChange={e => handleTaskFieldChange(te, 'start_time', e.target.value)}
+                        className={`${INPUT_CLS} w-[90px] lg:w-[110px] flex-shrink-0`} />
+                      <div className="text-sm flex-shrink-0"><ScoreBadge earned={te.earned_points} max={te.todo_max_points} /></div>
+                      <button onClick={() => removeTaskEntry(te)}
+                        className="text-gray-600 hover:text-red-400 transition-colors text-sm font-bold flex-shrink-0" title="Remove from today">✕</button>
                     </div>
-                    <input type="time" value={te.start_time || ''} onChange={e => handleTaskFieldChange(te, 'start_time', e.target.value)}
-                      className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500 w-full" />
-                    <input type="time" value={te.end_time || ''} onChange={e => handleTaskFieldChange(te, 'end_time', e.target.value)}
-                      className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500 w-full" />
-                    <input type="number" min="0" value={te.duration_minutes ?? ''} onChange={e => handleTaskFieldChange(te, 'duration_minutes', e.target.value)}
-                      placeholder="—" className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500 w-full text-center" />
-                    <div className="text-right text-sm">
-                      <ScoreBadge earned={te.earned_points} max={te.todo_max_points} />
-                    </div>
-                    <button onClick={() => removeTaskEntry(te)}
-                      className="text-gray-700 hover:text-red-400 transition-colors text-sm font-bold" title="Remove from today">✕</button>
-                  </div>
+                  )}
+
+                  {/* ── Duration ── start / end / mins */}
+                  {isDuration && (
+                    <>
+                      {/* Mobile: name + score top row, inputs bottom row */}
+                      <div className="flex items-center justify-between mb-2 sm:hidden">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-sm lg:text-base font-medium text-white truncate">{te.todo_title}</span>
+                          {savingTask[te.id] && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />}
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                          <div className="text-sm"><ScoreBadge earned={te.earned_points} max={te.todo_max_points} /></div>
+                          <button onClick={() => removeTaskEntry(te)}
+                            className="text-gray-600 hover:text-red-400 transition-colors text-sm font-bold" title="Remove from today">✕</button>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="hidden sm:flex flex-1 items-center gap-2 min-w-0">
+                          <span className="text-sm lg:text-base font-medium text-white truncate">{te.todo_title}</span>
+                          {savingTask[te.id] && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />}
+                        </div>
+                        <input type="time" value={te.start_time || ''}
+                          onChange={e => handleTaskFieldChange(te, 'start_time', e.target.value)}
+                          className={`${INPUT_CLS} flex-1 sm:flex-none sm:w-[90px] lg:w-[110px]`} />
+                        <input type="time" value={te.end_time || ''}
+                          onChange={e => handleTaskFieldChange(te, 'end_time', e.target.value)}
+                          className={`${INPUT_CLS} flex-1 sm:flex-none sm:w-[90px] lg:w-[110px]`} />
+                        <input type="number" min="0" value={te.duration_minutes ?? ''}
+                          onChange={e => handleTaskFieldChange(te, 'duration_minutes', e.target.value)}
+                          placeholder="mins" className={`${INPUT_CLS} w-14 lg:w-20 text-center`} />
+                        <div className="hidden sm:block text-sm flex-shrink-0"><ScoreBadge earned={te.earned_points} max={te.todo_max_points} /></div>
+                        <button onClick={() => removeTaskEntry(te)}
+                          className="hidden sm:block text-gray-600 hover:text-red-400 transition-colors text-sm font-bold flex-shrink-0" title="Remove from today">✕</button>
+                      </div>
+                    </>
+                  )}
 
                 </div>
-              ))}
+                )
+              })}
             </>
           )}
         </div>

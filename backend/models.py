@@ -61,11 +61,27 @@ class Todo(Base):
     title = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
     max_points = Column(Integer, nullable=False, default=0)
+    scoring_type = Column(String(20), nullable=False, default="boolean")
     status = Column(String(20), nullable=False, default="pending")  # pending | done | skipped
+    status_changed_date = Column(Date, nullable=True)               # date when status last changed
     display_order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, server_default=func.now())
 
     task_entries = relationship("DailyTaskEntry", back_populates="todo", cascade="all, delete-orphan")
+    scoring_rules = relationship("TodoScoringRule", back_populates="todo", cascade="all, delete-orphan")
+
+
+class TodoScoringRule(Base):
+    __tablename__ = "todo_scoring_rules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    todo_id = Column(Integer, ForeignKey("todos.id", ondelete="CASCADE"), nullable=False)
+    condition = Column(String(10), nullable=False)   # lte | gte | lt | gt | eq | bp
+    value = Column(String(20), nullable=False)        # "04:00" or "45"
+    percentage = Column(Integer, nullable=False)      # 0-100
+    rule_order = Column(Integer, nullable=False, default=0)
+
+    todo = relationship("Todo", back_populates="scoring_rules")
 
 
 class DailyTaskEntry(Base):

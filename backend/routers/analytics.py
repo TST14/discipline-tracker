@@ -158,6 +158,9 @@ def weekly_analytics(date: date = Query(...), db: Session = Depends(get_db)):
 @router.get("/monthly")
 def monthly_analytics(year: int, month: int, db: Session = Depends(get_db)):
     """Return per-day habit scores for every day in the given month."""
+    if not 1 <= month <= 12:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="month must be between 1 and 12")
     _, num_days = monthrange(year, month)
     all_dates = [date(year, month, d) for d in range(1, num_days + 1)]
 

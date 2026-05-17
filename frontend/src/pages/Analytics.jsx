@@ -23,7 +23,7 @@ function pctColor(pct) {
   if (pct >= 80) return 'bg-emerald-900 text-emerald-300'
   if (pct >= 50) return 'bg-yellow-900  text-yellow-300'
   if (pct > 0)   return 'bg-orange-900  text-orange-300'
-  return 'bg-gray-800 text-gray-500'
+  return 'bg-gray-800 text-gray-400'
 }
 
 // ─── shared sub-components ───────────────────────────────────────────────────
@@ -112,12 +112,12 @@ function WeeklyView() {
         <table className="w-full text-xs lg:text-sm">
           <thead>
             <tr className="border-b border-gray-800">
-              <th className="text-left px-4 lg:px-6 py-3 lg:py-4 text-gray-500 font-medium w-36 lg:w-48">Habits</th>
+              <th className="text-left px-4 lg:px-6 py-3 lg:py-4 text-gray-400 font-medium w-36 lg:w-48">Habits</th>
               {days.map((d, i) => (
                 <th key={i}
-                  className={`px-2 py-3 text-center font-medium ${d.date === today ? 'text-white' : 'text-gray-500'}`}>
+                  className={`px-2 py-3 text-center font-medium ${d.date === today ? 'text-white' : 'text-gray-300'}`}>
                   <div>{DAY_LABELS[i]}</div>
-                  <div className={`text-xs mt-0.5 ${d.date === today ? 'text-blue-400' : 'text-gray-500'}`}>
+                  <div className={`text-xs mt-0.5 ${d.date === today ? 'text-blue-400' : 'text-gray-400'}`}>
                     {dayjs(d.date).format('D')}
                   </div>
                 </th>
@@ -295,7 +295,7 @@ function MonthlyView() {
               <div
                 key={d.date}
                 className={`rounded-md sm:rounded-lg p-1 sm:p-2 text-center select-none ${
-                  hasPts ? pctColor(d.percentage) : 'bg-gray-800/40 text-gray-700'
+                  hasPts ? pctColor(d.percentage) : 'bg-gray-800/40 text-gray-500'
                 } ${isToday ? 'ring-2 ring-blue-500' : ''}`}
               >
                 <div className={`text-xs font-semibold leading-tight ${isToday ? 'text-blue-300' : ''}`}>
@@ -332,8 +332,8 @@ function MonthlyView() {
               <div key={habit.id}
                 className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4 px-4 py-3 border-b border-gray-800/50 last:border-0">
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-white truncate">{habit.name}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">
+                  <div className="text-sm lg:text-base font-medium text-white truncate">{habit.name}</div>
+                  <div className="text-xs lg:text-sm text-gray-500 mt-0.5">
                     Logged {daysLogged}/{days.length} days · {daysHit} days ≥ 80%
                   </div>
                 </div>
@@ -377,8 +377,8 @@ function MonthlyView() {
               <div key={todo.id}
                 className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4 px-4 py-3 border-b border-gray-800/50 last:border-0">
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-white truncate">{todo.title}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">
+                  <div className="text-sm lg:text-base font-medium text-white truncate">{todo.title}</div>
+                  <div className="text-xs lg:text-sm text-gray-500 mt-0.5">
                     Logged {daysLogged} day{daysLogged !== 1 ? 's' : ''}
                   </div>
                 </div>

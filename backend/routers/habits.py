@@ -1,10 +1,25 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Habit, ScoringRule
+from models import Habit, ScoringRule, DailyEntry
 from schemas import HabitCreate, HabitUpdate, HabitOut, ScoringRuleOut, ScoringRuleCreate, ReorderRequest
+from services.scoring import calculate_earned_points
 
 router = APIRouter(prefix="/habits", tags=["habits"])
+
+
+def _recompute_habit_entries(habit: Habit, db: Session) -> None:
+    """Recalculate earned_points for every existing entry of this habit."""
+    rules = (
+        db.query(ScoringRule)
+        .filter(ScoringRule.habit_id == habit.id)
+        .order_by(ScoringRule.rule_order)
+        .all()
+    )
+    entries = db.query(DailyEntry).filter(DailyEntry.habit_id == habit.id).all()
+    for entry in entries:
+        entry.earned_points = calculate_earned_points(habit, entry, rules)
+    db.commit()
 
 
 @router.get("", response_model=list[HabitOut])
@@ -37,10 +52,16 @@ def update_habit(habit_id: int, payload: HabitUpdate, db: Session = Depends(get_
     habit = db.get(Habit, habit_id)
     if not habit:
         raise HTTPException(status_code=404, detail="Habit not found")
+    scoring_changed = (
+        payload.max_points != habit.max_points
+        or payload.scoring_type != habit.scoring_type
+    )
     for k, v in payload.model_dump().items():
         setattr(habit, k, v)
     db.commit()
     db.refresh(habit)
+    if scoring_changed:
+        _recompute_habit_entries(habit, db)
     return habit
 
 
@@ -67,7 +88,8 @@ def get_rules(habit_id: int, db: Session = Depends(get_db)):
 
 @router.put("/{habit_id}/rules", response_model=list[ScoringRuleOut])
 def set_rules(habit_id: int, rules: list[ScoringRuleCreate], db: Session = Depends(get_db)):
-    if not db.get(Habit, habit_id):
+    habit = db.get(Habit, habit_id)
+    if not habit:
         raise HTTPException(status_code=404, detail="Habit not found")
     db.query(ScoringRule).filter(ScoringRule.habit_id == habit_id).delete()
     new_rules = [ScoringRule(habit_id=habit_id, **r.model_dump()) for r in rules]
@@ -75,4 +97,5 @@ def set_rules(habit_id: int, rules: list[ScoringRuleCreate], db: Session = Depen
     db.commit()
     for r in new_rules:
         db.refresh(r)
+    _recompute_habit_entries(habit, db)
     return new_rules

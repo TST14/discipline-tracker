@@ -31,6 +31,8 @@ def list_entries(date: ddate = Query(...), db: Session = Depends(get_db)):
 @router.post("", response_model=EntryOut)
 def upsert_entry(payload: EntryUpsert, db: Session = Depends(get_db)):
     habit = db.get(Habit, payload.habit_id)
+    if not habit:
+        raise HTTPException(status_code=404, detail="Habit not found")
 
     start = _parse_time(payload.start_time)
     end = _parse_time(payload.end_time)
@@ -56,9 +58,9 @@ def upsert_entry(payload: EntryUpsert, db: Session = Depends(get_db)):
         .filter(ScoringRule.habit_id == payload.habit_id)
         .order_by(ScoringRule.rule_order)
         .all()
-    ) if habit else []
+    )
 
-    earned = calculate_earned_points(habit, tmp, rules) if habit else 0.0
+    earned = calculate_earned_points(habit, tmp, rules)
 
     # Upsert via PostgreSQL ON CONFLICT
     stmt = (

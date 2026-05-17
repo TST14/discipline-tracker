@@ -104,18 +104,40 @@ class DailySummary(BaseModel):
     percentage: float
 
 
+# ── Todo Scoring Rules ────────────────────────────────────────────────────────
+
+class TodoScoringRuleBase(BaseModel):
+    condition: RuleCondition
+    value: str = Field(..., max_length=20)
+    percentage: int = Field(..., ge=0, le=100)
+    rule_order: int = Field(0, ge=0)
+
+
+class TodoScoringRuleCreate(TodoScoringRuleBase):
+    pass
+
+
+class TodoScoringRuleOut(TodoScoringRuleBase):
+    id: int
+    todo_id: int
+
+    model_config = {"from_attributes": True}
+
+
 # ── Todos ─────────────────────────────────────────────────────────────────────
 
 class TodoCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=1000)
     max_points: int = Field(0, ge=0, le=10000)
+    scoring_type: ScoringType = "boolean"
 
 
 class TodoUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=1000)
     max_points: Optional[int] = Field(None, ge=0, le=10000)
+    scoring_type: Optional[ScoringType] = None
     status: Optional[TodoStatus] = None   # pending | done | skipped
 
 
@@ -124,7 +146,9 @@ class TodoOut(BaseModel):
     title: str
     description: Optional[str] = None
     max_points: int
+    scoring_type: str
     status: str
+    status_changed_date: Optional[date] = None
     display_order: int
     created_at: datetime
 
@@ -158,6 +182,7 @@ class TaskEntryOut(BaseModel):
     earned_points: Optional[float] = None
     todo_title: Optional[str] = None
     todo_max_points: Optional[int] = None
+    todo_scoring_type: Optional[str] = None
     todo_display_order: Optional[int] = None
 
     model_config = {"from_attributes": True}
@@ -174,5 +199,6 @@ class TaskEntryOut(BaseModel):
             earned_points=float(entry.earned_points) if entry.earned_points is not None else None,
             todo_title=entry.todo.title if entry.todo else None,
             todo_max_points=entry.todo.max_points if entry.todo else None,
+            todo_scoring_type=entry.todo.scoring_type if entry.todo else None,
             todo_display_order=entry.todo.display_order if entry.todo else None,
         )

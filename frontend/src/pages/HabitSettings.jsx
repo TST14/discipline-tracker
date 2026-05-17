@@ -271,10 +271,12 @@ export default function HabitSettings() {
   useEffect(() => { load() }, [])
 
   const handleSave = async (form) => {
-    if (editingHabit === 'new') await createHabit({ ...form, display_order: habits.length })
-    else await updateHabit(editingHabit.id, form)
+    const saved = editingHabit === 'new'
+      ? await createHabit({ ...form, display_order: habits.length })
+      : await updateHabit(editingHabit.id, form)
     setEditingHabit(null)
     await load()
+    if (saved.scoring_type !== 'boolean') setRulesHabit(saved)
   }
 
   const handleDelete = async (habit) => {
