@@ -298,9 +298,12 @@ export default function HabitSettings() {
     }
   }
 
-  // ── drag-and-drop reorder (mouse + touch) ──────────────────────────────────
+  // ── drag-and-drop reorder ─────────────────────────────────────────────────
+  // Mouse DnD: handlers on the whole row (draggable attribute).
+  // Touch DnD:  handlers scoped to the ⠿ drag handle only — keeps the rest of
+  //             the row scrollable on mobile (see touch handlers on the span).
   const dragIdx        = useRef(null)
-  const touchTargetIdx = useRef(null)  // drop target index for touch DnD
+  const touchTargetIdx = useRef(null)  // drop target row index for touch DnD
   const [dragOverIdx, setDragOverIdx] = useState(null)
 
   const handleDragStart = (e, idx) => {
@@ -334,9 +337,11 @@ export default function HabitSettings() {
     setDragOverIdx(null)
   }
 
-  // ── touch drag-and-drop (mobile) ──────────────────────────────────────────
-  const touchStartPos = useRef(null)  // {x, y} at touchstart
-  const isDragging    = useRef(false)  // true once finger moves > threshold
+  // ── touch drag-and-drop (mobile, handle-only) ─────────────────────────────
+  // These handlers are attached only to the ⠿ span, NOT the row, so that a
+  // normal swipe anywhere else on the row scrolls the page as expected.
+  const touchStartPos = useRef(null)  // {x, y} recorded at touchstart
+  const isDragging    = useRef(false)  // true once finger exceeds movement threshold
 
   const handleTouchStart = (e, idx) => {
     dragIdx.current   = idx
@@ -347,8 +352,8 @@ export default function HabitSettings() {
   const handleTouchMove = (e) => {
     if (dragIdx.current === null) return
     const touch = e.touches[0]
-    // Only activate drag mode once finger moves more than 10 px
-    // — this lets button taps complete without triggering a reorder.
+    // Only activate drag mode once the finger moves more than 10 px.
+    // Prevents an accidental short press on the handle from triggering a reorder.
     if (!isDragging.current) {
       const dx = Math.abs(touch.clientX - touchStartPos.current.x)
       const dy = Math.abs(touch.clientY - touchStartPos.current.y)
@@ -446,10 +451,6 @@ export default function HabitSettings() {
                 onDragOver={(e)  => handleDragOver(e, idx)}
                 onDrop={(e)      => handleDrop(e, idx)}
                 onDragEnd={handleDragEnd}
-                onTouchStart={(e) => handleTouchStart(e, idx)}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-                style={{ touchAction: 'none' }}
                 className={`transition-colors
                   ${isDropTarget
                     ? 'border-t-2 border-t-blue-500 bg-blue-950/20'
@@ -462,8 +463,18 @@ export default function HabitSettings() {
 
                   {/* Drag handle + reorder buttons */}
                   <div className="flex flex-col items-center gap-0.5 flex-shrink-0 select-none">
+                    {/*
+                      Touch handlers live here (not on the row) so the rest of
+                      the row remains scrollable on mobile. touchAction:'none' is
+                      required on this element to let the browser hand touch
+                      events to React instead of treating them as scroll gestures.
+                    */}
                     <span
                       title="Drag to reorder"
+                      onTouchStart={(e) => handleTouchStart(e, idx)}
+                      onTouchMove={handleTouchMove}
+                      onTouchEnd={handleTouchEnd}
+                      style={{ touchAction: 'none' }}
                       className="text-gray-500 hover:text-gray-300 cursor-grab active:cursor-grabbing text-base leading-none mb-0.5"
                     >
                       ⠿
