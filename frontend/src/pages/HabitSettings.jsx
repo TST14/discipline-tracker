@@ -18,10 +18,10 @@ const SCORING_TYPES = [
 ]
 
 const CONDITION_LABELS = {
-  lte: '≤ (at or before / up to)',
-  gte: '≥ (at or after / at least)',
-  lt:  '< (strictly before / less than)',
-  gt:  '> (strictly after / more than)',
+  lte: '≤ (at most)',
+  gte: '≥ (at least)',
+  lt:  '< (less than)',
+  gt:  '> (more than)',
   eq:  '= (exactly)',
 }
 
@@ -298,8 +298,9 @@ export default function HabitSettings() {
     }
   }
 
-  // ── drag-and-drop reorder ──────────────────────────────────────────────────
-  const dragIdx       = useRef(null)
+  // ── drag-and-drop reorder (mouse + touch) ──────────────────────────────────
+  const dragIdx        = useRef(null)
+  const touchTargetIdx = useRef(null)  // drop target index for touch DnD
   const [dragOverIdx, setDragOverIdx] = useState(null)
 
   const handleDragStart = (e, idx) => {
@@ -333,6 +334,57 @@ export default function HabitSettings() {
     setDragOverIdx(null)
   }
 
+  // ── touch drag-and-drop (mobile) ──────────────────────────────────────────
+  const touchStartPos = useRef(null)  // {x, y} at touchstart
+  const isDragging    = useRef(false)  // true once finger moves > threshold
+
+  const handleTouchStart = (e, idx) => {
+    dragIdx.current   = idx
+    isDragging.current = false
+    touchTargetIdx.current = null
+    touchStartPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }
+  }
+  const handleTouchMove = (e) => {
+    if (dragIdx.current === null) return
+    const touch = e.touches[0]
+    // Only activate drag mode once finger moves more than 10 px
+    // — this lets button taps complete without triggering a reorder.
+    if (!isDragging.current) {
+      const dx = Math.abs(touch.clientX - touchStartPos.current.x)
+      const dy = Math.abs(touch.clientY - touchStartPos.current.y)
+      if (dx < 10 && dy < 10) return
+      isDragging.current = true
+    }
+    const el = document.elementFromPoint(touch.clientX, touch.clientY)
+    const draggableEl = el?.closest('[data-drag-idx]')
+    if (draggableEl) {
+      const overIdx = Number(draggableEl.dataset.dragIdx)
+      touchTargetIdx.current = overIdx
+      if (overIdx !== dragIdx.current) setDragOverIdx(overIdx)
+    }
+  }
+  const handleTouchEnd = async () => {
+    const from       = dragIdx.current
+    const to         = touchTargetIdx.current
+    const wasDragging = isDragging.current
+    dragIdx.current = null
+    touchTargetIdx.current = null
+    isDragging.current = false
+    touchStartPos.current = null
+    setDragOverIdx(null)
+    if (!wasDragging || from === null || to === null || from === to) return
+    const reordered = [...habits]
+    const [moved] = reordered.splice(from, 1)
+    reordered.splice(to, 0, moved)
+    setHabits(reordered)
+    try {
+      await reorderHabits(reordered.map(h => h.id))
+    } catch {
+      setError('Failed to reorder habits.')
+      await load()
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -360,14 +412,44 @@ export default function HabitSettings() {
           habits.map((habit, idx) => {
             const badge = SCORING_TYPE_BADGE[habit.scoring_type] || SCORING_TYPE_BADGE.boolean
             const isDropTarget = dragOverIdx === idx
+            const actionButtons = (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setRulesHabit(rulesHabit?.id === habit.id ? null : habit)}
+                  className="px-2.5 py-1.5 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                  Rules
+                </button>
+                <button
+                  onClick={() => setEditingHabit(habit)}
+                  className="px-2.5 py-1.5 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                  Edit
+                </button>
+                <button
+                  onClick={() => handleDelete(habit)}
+                  disabled={habit.is_active}
+                  title={habit.is_active ? 'Disable the habit first to delete it' : 'Delete habit'}
+                  className={`px-2.5 py-1.5 text-xs rounded-lg transition-colors ${
+                    habit.is_active
+                      ? 'text-gray-700 bg-gray-800 cursor-not-allowed'
+                      : 'text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-gray-700'
+                  }`}>
+                  Delete
+                </button>
+              </div>
+            )
             return (
               <div
                 key={habit.id}
+                data-drag-idx={idx}
                 draggable
                 onDragStart={(e) => handleDragStart(e, idx)}
                 onDragOver={(e)  => handleDragOver(e, idx)}
                 onDrop={(e)      => handleDrop(e, idx)}
                 onDragEnd={handleDragEnd}
+                onTouchStart={(e) => handleTouchStart(e, idx)}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                style={{ touchAction: 'none' }}
                 className={`transition-colors
                   ${isDropTarget
                     ? 'border-t-2 border-t-blue-500 bg-blue-950/20'
@@ -411,39 +493,19 @@ export default function HabitSettings() {
                     <span className={`block w-4 h-4 rounded-full bg-white shadow transition-transform mx-0.5 ${habit.is_active ? 'translate-x-4' : 'translate-x-0'}`} />
                   </button>
 
-                  {/* Name + badge */}
+                  {/* Name + badge + mobile actions */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                        <span className="text-sm lg:text-base font-medium text-white truncate">{habit.name}</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${badge.color}`}>{badge.label}</span>
+                      <span className="text-sm lg:text-base font-medium text-white truncate">{habit.name}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${badge.color}`}>{badge.label}</span>
                     </div>
                     <div className="text-xs text-gray-400 mt-0.5">Max {habit.max_points} pts</div>
+                    {/* Actions shown below name on mobile */}
+                    <div className="sm:hidden mt-2">{actionButtons}</div>
                   </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setRulesHabit(rulesHabit?.id === habit.id ? null : habit)}
-                      className="px-2.5 py-1.5 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
-                      Rules
-                    </button>
-                    <button
-                      onClick={() => setEditingHabit(habit)}
-                      className="px-2.5 py-1.5 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(habit)}
-                      disabled={habit.is_active}
-                      title={habit.is_active ? 'Disable the habit first to delete it' : 'Delete habit'}
-                      className={`px-2.5 py-1.5 text-xs rounded-lg transition-colors ${
-                        habit.is_active
-                          ? 'text-gray-700 bg-gray-800 cursor-not-allowed'
-                          : 'text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-gray-700'
-                      }`}>
-                      Delete
-                    </button>
-                  </div>
+                  {/* Actions — desktop only (sm+) */}
+                  <div className="hidden sm:block">{actionButtons}</div>
                 </div>
 
                 {editingHabit && editingHabit !== 'new' && editingHabit.id === habit.id && (

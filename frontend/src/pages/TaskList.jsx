@@ -65,7 +65,8 @@ export default function TaskList() {
   const [error, setError] = useState(null)
 
   // drag-and-drop
-  const dragIdx       = useRef(null)
+  const dragIdx        = useRef(null)
+  const touchTargetIdx = useRef(null)  // drop target index for touch DnD
   const [dragOverIdx, setDragOverIdx] = useState(null)
 
   const load = async () => {
@@ -149,6 +150,57 @@ export default function TaskList() {
     setDragOverIdx(null)
   }
 
+  // ── touch drag-and-drop (mobile) ──────────────────────────────────────────
+  const touchStartPos = useRef(null)  // {x, y} at touchstart
+  const isDragging    = useRef(false)  // true once finger moves > threshold
+
+  const handleTouchStart = (e, idx) => {
+    dragIdx.current = idx
+    isDragging.current = false
+    touchTargetIdx.current = null
+    touchStartPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }
+  }
+  const handleTouchMove = (e) => {
+    if (dragIdx.current === null) return
+    const touch = e.touches[0]
+    // Only activate drag mode once finger moves more than 10 px
+    // — this lets button taps complete without triggering a reorder.
+    if (!isDragging.current) {
+      const dx = Math.abs(touch.clientX - touchStartPos.current.x)
+      const dy = Math.abs(touch.clientY - touchStartPos.current.y)
+      if (dx < 10 && dy < 10) return
+      isDragging.current = true
+    }
+    const el = document.elementFromPoint(touch.clientX, touch.clientY)
+    const draggableEl = el?.closest('[data-drag-idx]')
+    if (draggableEl) {
+      const overIdx = Number(draggableEl.dataset.dragIdx)
+      touchTargetIdx.current = overIdx
+      if (overIdx !== dragIdx.current) setDragOverIdx(overIdx)
+    }
+  }
+  const handleTouchEnd = async () => {
+    const from        = dragIdx.current
+    const to          = touchTargetIdx.current
+    const wasDragging = isDragging.current
+    dragIdx.current = null
+    touchTargetIdx.current = null
+    isDragging.current = false
+    touchStartPos.current = null
+    setDragOverIdx(null)
+    if (!wasDragging || from === null || to === null || from === to) return
+    const reordered = [...todos]
+    const [moved] = reordered.splice(from, 1)
+    reordered.splice(to, 0, moved)
+    setTodos(reordered)
+    try {
+      await reorderTodos(reordered.map(t => t.id))
+    } catch {
+      setError('Failed to reorder tasks.')
+      await load()
+    }
+  }
+
   const filteredTodos = filter === 'all' ? todos : todos.filter(t => t.status === filter)
   const counts = todos.reduce((acc, t) => { acc[t.status] = (acc[t.status] || 0) + 1; return acc }, {})
 
@@ -194,11 +246,16 @@ export default function TaskList() {
             const isDropTarget = showReorder && dragOverIdx === idx
             return (
               <div key={todo.id}
+                data-drag-idx={idx}
                 draggable={showReorder}
                 onDragStart={showReorder ? (e) => handleDragStart(e, idx) : undefined}
                 onDragOver={showReorder  ? (e) => handleDragOver(e, idx)  : undefined}
                 onDrop={showReorder      ? (e) => handleDrop(e, idx)      : undefined}
                 onDragEnd={showReorder   ? handleDragEnd                  : undefined}
+                onTouchStart={showReorder ? (e) => handleTouchStart(e, idx) : undefined}
+                onTouchMove={showReorder  ? handleTouchMove                 : undefined}
+                onTouchEnd={showReorder   ? handleTouchEnd                  : undefined}
+                style={showReorder ? { touchAction: 'none' } : undefined}
                 className={`flex items-start gap-3 px-4 lg:px-6 py-3 lg:py-4 transition-colors
                   ${isDropTarget
                     ? 'border-t-2 border-t-blue-500 bg-blue-950/20'
