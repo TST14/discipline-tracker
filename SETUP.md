@@ -106,12 +106,22 @@ DEBUG=true
 ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
 ```
 
-**Run database migrations:**
+**Initialize tables and run migrations:**
+
+Mac / Linux:
 ```bash
+python -c "from database import engine, Base; import models; Base.metadata.create_all(bind=engine)"
 alembic upgrade head
 ```
 
-> This creates all tables. Run it once on first setup, and again any time you pull new changes.
+Windows PowerShell:
+```powershell
+python -c "from database import engine, Base; import models; Base.metadata.create_all(bind=engine)"
+alembic upgrade head
+```
+
+> `create_all` creates the base tables; `alembic upgrade head` applies any schema changes on top.  
+> On first setup run both. When pulling new changes that include migrations, run **`alembic upgrade head` only** (tables already exist).
 
 **Start the backend:**
 
