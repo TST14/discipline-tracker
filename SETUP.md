@@ -6,12 +6,10 @@ Full stack: **React + Vite** (frontend) · **FastAPI** (backend) · **PostgreSQL
 
 ## Choose your setup path
 
-| I want to… | Card required? | Go to |
-|---|---|---|
-| Run it on my own laptop / desktop | No | [Part 1 — Local Setup](#part-1--local-setup) |
-| Deploy it online (Vercel + Render) | Render asks for card | [Part 2A — Cloud: Vercel + Render](#part-2a--cloud-vercel--render-easiest) |
-| Deploy it online (Vercel + Oracle Cloud VM) | Oracle asks for card | [Part 2B — Cloud: Vercel + Oracle Cloud VM](#part-2b--cloud-vercel--oracle-cloud-free-vm) |
-| **Deploy online — zero card, completely free** | **No card anywhere** | [Part 2C — Cloud: Vercel + Render + Supabase](#part-2c--cloud-vercel--render--supabase) |
+| I want to… | Go to |
+|---|---|
+| Run it on my own laptop / desktop | [Part 1 — Local Setup](#part-1--local-setup) |
+| Deploy it online for free | [Part 2 — Cloud: Vercel + Render + Neon](#part-2--cloud-vercel--render--neon) |
 
 ---
 
@@ -208,435 +206,109 @@ cd frontend && npm run dev
 
 ---
 
-## Part 2A — Cloud: Vercel + Render (easiest)
+## Part 2 — Cloud: Vercel + Render + Neon
 
-This option keeps everything free and requires no server management. Render hosts the backend, Render PostgreSQL hosts the database, and Vercel hosts the frontend.
+**All three are free forever. No credit card required anywhere.**
 
-**Free tier limits to know:**
-- Render free web services spin down after 15 min of inactivity (first request after idle takes ~30 sec)
-- Render free PostgreSQL expires after **90 days** — you must back up and recreate it
-- Vercel free tier is generous with no notable limits for personal apps
-
----
-
-### Step 1 — Create the database on Render
-
-1. Go to https://dashboard.render.com → **New → PostgreSQL**
-2. Fill in:
-   - **Name**: `discipline-db`
-   - **Region**: closest to you
-   - **Plan**: Free
-3. Click **Create Database**
-4. Once created, copy the **Internal Database URL** (used in Step 2) and the **External Database URL** (used if you want to connect from your laptop)
-
----
-
-### Step 2 — Deploy the backend on Render
-
-1. Go to https://dashboard.render.com → **New → Web Service**
-2. Connect your GitHub account and select the `discipline-tracker` repo
-3. Configure:
-   - **Name**: `discipline-tracker-api`
-   - **Root Directory**: `backend`
-   - **Runtime**: Python 3
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT`
-4. Under **Environment Variables**, add:
-
-   | Key | Value |
-   |---|---|
-   | `DATABASE_URL` | *(paste the Internal Database URL from Step 1)* |
-   | `DEBUG` | `false` |
-   | `ALLOWED_ORIGINS` | `https://your-app.vercel.app` *(fill in after Step 3)* |
-
-5. Click **Create Web Service**
-6. Wait for the deploy to finish. Copy your service URL (e.g. `https://discipline-tracker-api.onrender.com`)
-
-> **ALLOWED_ORIGINS**: You'll update this after you get the Vercel URL. For the first deploy, set it to `*` temporarily, then tighten it once you have the real URL.
-
----
-
-### Step 3 — Deploy the frontend on Vercel
-
-1. Go to https://vercel.com → **Add New → Project**
-2. Import your `discipline-tracker` GitHub repo
-3. Configure:
-   - **Root Directory**: `frontend`
-   - **Framework Preset**: Vite (auto-detected)
-4. Under **Environment Variables**, add:
-
-   | Key | Value |
-   |---|---|
-   | `VITE_API_URL` | `https://discipline-tracker-api.onrender.com` *(your Render URL from Step 2)* |
-
-5. Click **Deploy**
-6. Copy your Vercel URL (e.g. `https://discipline-tracker-abc123.vercel.app`)
-
----
-
-### Step 4 — Update CORS on Render
-
-1. Go back to your Render web service → **Environment**
-2. Update `ALLOWED_ORIGINS` to your actual Vercel URL:
-   ```
-   https://discipline-tracker-abc123.vercel.app
-   ```
-3. Render will automatically redeploy
-
----
-
-### Step 5 — Verify
-
-1. Open your Vercel URL in a browser
-2. Go to **Configure**, add a habit — if it saves, everything is wired up correctly
-3. Check backend health: `https://discipline-tracker-api.onrender.com/health`
-
----
-
-## Part 2B — Cloud: Vercel + Oracle Cloud Free VM
-
-This option gives you a permanent free server with no spin-down and no 90-day database expiry. Oracle Cloud's Always Free tier includes a powerful ARM VM (4 OCPU, 24 GB RAM) that you fully control.
-
-**What you get for free, forever:**
-- 2 AMD VMs (1 OCPU, 1 GB RAM each) **or** up to 4 ARM Ampere A1 OCPUs + 24 GB RAM
-- 200 GB block storage
-- No credit card required after signup (free tier is truly free)
-
----
-
-### Step 1 — Create an Oracle Cloud account
-
-1. Go to https://cloud.oracle.com → **Start for Free**
-2. Sign up — you will need a credit card for identity verification but will **not** be charged
-3. Choose a Home Region (cannot be changed later — pick closest to you)
-
----
-
-### Step 2 — Create a free VM instance
-
-1. In the Oracle Console → **Compute → Instances → Create Instance**
-2. Configure:
-   - **Name**: `discipline-server`
-   - **Image**: Ubuntu 22.04 (change from Oracle Linux)
-   - **Shape**: Click **Change Shape** → **Ampere** → `VM.Standard.A1.Flex`
-     - OCPUs: `2`, Memory: `12 GB` (stays within free tier)
-   - **Networking**: Accept defaults (a new VCN will be created)
-   - **SSH Keys**: Download or paste your public key — **save the private key, you need it to connect**
-3. Click **Create**
-4. Wait ~2 min for the instance to be **Running**
-5. Copy the **Public IP address**
-
----
-
-### Step 3 — Open firewall ports on Oracle Cloud
-
-Oracle Cloud has two layers of firewall you must open:
-
-**Layer 1 — Security List (Oracle side):**
-1. Go to **Networking → Virtual Cloud Networks → your VCN → Security Lists → Default Security List**
-2. Click **Add Ingress Rules**, add these two:
-   - Source: `0.0.0.0/0`, Protocol: TCP, Port: `8000` (FastAPI)
-   - Source: `0.0.0.0/0`, Protocol: TCP, Port: `443` (HTTPS, for later)
-
-**Layer 2 — Ubuntu firewall (inside the VM):**
-```bash
-sudo iptables -I INPUT -p tcp --dport 8000 -j ACCEPT
-sudo netfilter-persistent save
-```
-
----
-
-### Step 4 — Connect to the VM and install dependencies
-
-```bash
-ssh -i /path/to/your-private-key.pem ubuntu@<YOUR_VM_PUBLIC_IP>
-```
-
-Once connected:
-```bash
-# Update system
-sudo apt update && sudo apt upgrade -y
-
-# Install Python, pip, git, PostgreSQL
-sudo apt install -y python3 python3-pip python3-venv git postgresql postgresql-contrib
-
-# Start and enable PostgreSQL
-sudo systemctl start postgresql
-sudo systemctl enable postgresql
-```
-
----
-
-### Step 5 — Create the PostgreSQL database
-
-```bash
-# Switch to postgres user
-sudo -i -u postgres
-
-# Create the database user and database
-psql -c "CREATE USER tracker WITH PASSWORD 'your_strong_password_here';"
-psql -c "CREATE DATABASE discipline_tracker OWNER tracker;"
-psql -c "GRANT ALL PRIVILEGES ON DATABASE discipline_tracker TO tracker;"
-
-# Exit postgres user
-exit
-```
-
-> Replace `your_strong_password_here` with a strong password. Record it — you'll use it in the next step.
-
----
-
-### Step 6 — Clone the repo and set up the backend
-
-```bash
-# Clone
-git clone https://github.com/TST14/discipline-tracker.git
-cd discipline-tracker/backend
-
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Create .env
-cp .env.example .env
-nano .env
-```
-
-Edit `.env` with your values:
-```
-DATABASE_URL=postgresql://tracker:your_strong_password_here@localhost:5432/discipline_tracker
-DEBUG=false
-ALLOWED_ORIGINS=https://your-app.vercel.app
-```
-
-Save and exit (`Ctrl+O`, `Enter`, `Ctrl+X` in nano).
-
-**Run migrations:**
-```bash
-alembic upgrade head
-```
-
----
-
-### Step 7 — Run the backend as a systemd service
-
-This keeps the API running permanently and auto-restarts on reboot.
-
-```bash
-# Get the full path to your uvicorn
-which uvicorn  # or: .venv/bin/uvicorn
-
-# Create the service file
-sudo nano /etc/systemd/system/discipline-api.service
-```
-
-Paste this (adjust paths to match your username and repo location):
-```ini
-[Unit]
-Description=Discipline Tracker FastAPI
-After=network.target postgresql.service
-
-[Service]
-User=ubuntu
-WorkingDirectory=/home/ubuntu/discipline-tracker/backend
-Environment="PATH=/home/ubuntu/discipline-tracker/backend/.venv/bin"
-EnvironmentFile=/home/ubuntu/discipline-tracker/backend/.env
-ExecStart=/home/ubuntu/discipline-tracker/backend/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start:
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable discipline-api
-sudo systemctl start discipline-api
-
-# Check it's running
-sudo systemctl status discipline-api
-```
-
-Verify from outside: `http://<YOUR_VM_PUBLIC_IP>:8000/health`
-
----
-
-### Step 8 — Deploy the frontend on Vercel
-
-1. Go to https://vercel.com → **Add New → Project**
-2. Import your `discipline-tracker` GitHub repo
-3. Configure:
-   - **Root Directory**: `frontend`
-   - **Framework Preset**: Vite
-4. Under **Environment Variables**:
-
-   | Key | Value |
-   |---|---|
-   | `VITE_API_URL` | `http://<YOUR_VM_PUBLIC_IP>:8000` |
-
-5. Click **Deploy**
-6. Copy your Vercel URL
-
----
-
-### Step 9 — Update CORS on the VM
-
-SSH back into the VM and update the `ALLOWED_ORIGINS` in `.env`:
-```bash
-nano ~/discipline-tracker/backend/.env
-```
-Change:
-```
-ALLOWED_ORIGINS=https://your-actual-vercel-url.vercel.app
-```
-
-Restart the service:
-```bash
-sudo systemctl restart discipline-api
-```
-
----
-
-### Step 9 (optional) — Set up a domain + HTTPS
-
-If you have a domain name, you can use Caddy as a reverse proxy to serve the API over HTTPS:
-
-```bash
-sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-sudo apt update && sudo apt install caddy
-
-sudo nano /etc/caddy/Caddyfile
-```
-
-Paste:
-```
-api.yourdomain.com {
-    reverse_proxy localhost:8000
-}
-```
-
-```bash
-sudo systemctl restart caddy
-```
-
-Then update `VITE_API_URL` in Vercel to `https://api.yourdomain.com` and update `ALLOWED_ORIGINS` on the VM accordingly.
-
----
-
-## Part 2C — Cloud: Vercel + Render + Supabase
-
-This deployment uses Vercel for the frontend, Render for the backend (Docker), and Supabase for Postgres. Keep secrets out of the repository and add them as environment variables in the platform dashboards.
-
-| Service | What it hosts | Notes |
+| Service | Role | Free limits |
 |---|---|---|
-| Supabase | PostgreSQL database | Managed Postgres — copy the connection URI as `DATABASE_URL` |
-| Render | FastAPI backend (Docker) | Uses the `backend/Dockerfile`; Render sets `$PORT` at runtime |
-| Vercel | React frontend (static) | Hobby tier is suitable for a static frontend |
+| [Neon](https://neon.tech) | PostgreSQL database | 0.5 GB, free forever |
+| [Render](https://render.com) | FastAPI backend | 750 hrs/month, spins down after 15 min idle |
+| [Vercel](https://vercel.com) | React frontend (static) | Unlimited, free forever |
 
 ---
 
-### Step 1 — Create the database on Supabase
+### Step 1 — Database on Neon
 
-1. Go to https://supabase.com → **Start your project** — sign up with GitHub
-2. Click **New project**
-3. Fill in:
-   - **Name**: `discipline-tracker`
-   - **Database Password**: choose a strong password and save it
-   - **Region**: closest to you
-4. Wait ~1 minute for the project to provision
-5. Go to **Project Settings → Database**
-6. Scroll to **Connection string** → select **URI** tab
-7. Copy the URI — this is your `DATABASE_URL`.
+1. Go to https://neon.tech → **Sign up** with GitHub (no card)
+2. Click **New Project**, give it any name, pick the region closest to you
+3. On the project dashboard go to **Dashboard → Connection Details**
+4. Select **Pooled connection** and copy the URI — it looks like:
+   ```
+   postgresql://user:password@ep-xxx-yyy.us-east-2.aws.neon.tech/neondb?sslmode=require
+   ```
+   Save this — it’s your `DATABASE_URL`.
 
 ---
 
-### Step 2 — Deploy the backend on Render (Docker)
+### Step 2 — Backend on Render
 
-Render can build your service from the `backend/Dockerfile` in this repo. The `Dockerfile` in `backend/` has been updated to use the `$PORT` environment variable so it works on Render.
-
-1. Go to https://render.com and sign in (connect your GitHub account)
-2. Click **New** → **Web Service**
-3. Select your GitHub repo and branch (`main`)
-4. Under **Environment**, choose **Docker** (Render will use your `backend/Dockerfile`)
-5. In the **Environment** tab for the service, add the following environment variables:
-   - `DATABASE_URL` = *(your Supabase URI from Step 1)*
-   - `DEBUG` = `false`
-   - `ALLOWED_ORIGINS` = `https://your-app.vercel.app` *(fill in after Step 3)*
-6. Deploy the service — Render builds the Docker image and starts the container. Watch the build logs in the Render Dashboard.
-
-Once deployed, your API is live at the Render URL shown in the service dashboard, for example:
-```
-https://discipline-tracker-api.onrender.com
-```
-
-Verify: `https://<your-render-service>.onrender.com/health`
-
-> Note: Render free tier may spin down services after inactivity; consult Render docs if you need always-on uptime.
-
----
-
-### Step 3 — Deploy the frontend on Vercel
-
-1. Go to https://vercel.com → sign up with GitHub
-2. Click **Add New → Project** → import `discipline-tracker`
-3. Set **Root Directory** to `frontend`
-4. Under **Environment Variables**, add:
+1. Go to https://render.com → sign up with GitHub
+2. **New → Web Service** → connect your `discipline-tracker` repo
+3. Configure:
+   - **Root Directory**: `backend`
+   - **Runtime**: Docker *(Render will detect the `Dockerfile` automatically)*
+   - **Instance Type**: Free
+4. Under **Environment Variables** add:
 
    | Key | Value |
    |---|---|
-   | `VITE_API_URL` | `https://<your-render-service>.onrender.com` |
+   | `DATABASE_URL` | *(your Neon URI from Step 1)* |
+   | `DEBUG` | `false` |
+   | `ALLOWED_ORIGINS` | `https://your-app.vercel.app` *(update after Step 3)* |
+
+5. Click **Deploy**. First build takes 2–3 minutes.
+6. Once live, open the Render **Shell** tab and run the migration:
+   ```bash
+   alembic upgrade head
+   ```
+7. Copy your service URL — e.g. `https://discipline-tracker-api.onrender.com`
+
+Verify: `https://discipline-tracker-api.onrender.com/health` → `{"status":"ok","database":"ok"}`
+
+> **Spin-down:** Render free tier sleeps after 15 min of inactivity. The first request after sleeping takes ~30 seconds. Subsequent requests are instant.
+
+---
+
+### Step 3 — Frontend on Vercel
+
+1. Go to https://vercel.com → sign up with GitHub (no card)
+2. **Add New → Project** → import `discipline-tracker`
+3. Set **Root Directory** to `frontend`
+4. Under **Environment Variables** add:
+
+   | Key | Value |
+   |---|---|
+   | `VITE_API_URL` | `https://discipline-tracker-api.onrender.com` *(your Render URL)* |
 
 5. Click **Deploy**
-6. Copy your Vercel URL (e.g. `https://discipline-tracker-abc.vercel.app`)
+6. Copy your Vercel URL — e.g. `https://discipline-tracker-abc.vercel.app`
+
+> **Important:** `VITE_API_URL` is baked into the static bundle at build time. If you ever change it on Vercel, you must trigger a **Redeploy** for it to take effect.
 
 ---
 
 ### Step 4 — Wire CORS
 
-1. In your Render service Dashboard → **Environment**
-2. Update `ALLOWED_ORIGINS` to your actual Vercel URL:
+1. Go back to Render → your web service → **Environment**
+2. Update `ALLOWED_ORIGINS` to your exact Vercel URL:
    ```
    https://discipline-tracker-abc.vercel.app
    ```
-3. Redeploy the Render service (or trigger a manual deploy) to pick up the new env var
+   No trailing slash. Must be `https://`.
+3. Render redeploys automatically.
 
 ---
 
-### Step 5 — Verify
+### Step 5 — Verify end-to-end
 
 1. Open your Vercel URL
-2. Go to **Configure**, add a habit — if it saves, the full stack is working
-3. Health check: `https://<your-render-service>.onrender.com/health`
+2. Go to **Configure** → add a habit → it should save without errors
+3. Go to **Today** → log an entry → score should update
+
+If you see a CORS error: double-check `ALLOWED_ORIGINS` on Render matches the Vercel URL exactly.
 
 ---
-## Future deploys (pulling updates)
 
-Whenever you push changes to GitHub:
+## Future deploys
 
-**Render:** redeploys automatically on every push to `main`.
+Both Render and Vercel redeploy automatically on every push to `main`.
 
-**Oracle Cloud VM:**
+If you change `models.py` (database schema), run the migration after deploy:
 ```bash
-ssh ubuntu@<YOUR_VM_PUBLIC_IP>
-cd ~/discipline-tracker
-git pull
-cd backend
-source .venv/bin/activate
-pip install -r requirements.txt     # only if requirements changed
-alembic upgrade head                # only if models changed
-sudo systemctl restart discipline-api
+# In Render → your service → Shell tab
+alembic upgrade head
 ```
-
-**Render:** redeploys automatically on every push to `main`.
-
-**Vercel:** redeploys automatically on every push to `main`.
 
 ---
 
@@ -648,8 +320,8 @@ npm config delete //registry.npmjs.org/:_authToken
 npm install
 ```
 
-**Backend can't find `.env`**  
-The `.env` file must be inside the `backend/` folder, not the repo root. Copy from `.env.example`.
+**Backend can’t find `.env`**  
+The `.env` file must be in `backend/`, not the repo root. Copy from `.env.example`.
 
 **PostgreSQL connection refused (local)**
 ```bash
@@ -663,286 +335,17 @@ netstat -ano | findstr :8000
 taskkill /PID <PID> /F
 ```
 
-**Render API is slow on first request**  
-Free tier spins down after 15 min of inactivity. The first request after idle takes ~30 seconds to wake up. This is normal — upgrade to a paid plan to eliminate it.
+**Render API slow on first request**  
+Free tier spins down after 15 min idle. First request takes ~30 seconds to wake. Normal behaviour.
 
-**Oracle VM: connection refused on port 8000**  
-Check both firewall layers: Oracle Security List (ingress rule for TCP 8000) and Ubuntu `iptables` (see Step 3). Also verify the service is running: `sudo systemctl status discipline-api`.
+**CORS error in browser**  
+`ALLOWED_ORIGINS` on Render must exactly match your Vercel URL — no trailing slash, `https://` not `http://`. After fixing, Render will redeploy; wait for it to finish.
 
-**CORS error in browser console**  
-The `ALLOWED_ORIGINS` env var on the backend must exactly match your frontend URL — no trailing slash, correct protocol (`https://` not `http://`). After changing it, restart the backend service.
+**Vercel still hitting `localhost:8000`**  
+`VITE_API_URL` is baked in at build time. After updating it in Vercel settings, go to **Deployments → Redeploy** to rebuild with the new value.
 
-**Alembic migration fails on first run**  
-If you previously ran the app without Alembic (tables already exist), run:
+**Alembic migration fails on first run (tables already exist)**  
+If tables were created by a previous `create_all`, tell Alembic to skip the initial migration:
 ```bash
 alembic stamp head
-```
-This tells Alembic the current state is already applied without re-running the migration.
-
-
----
-
-## Step 1 — Clone the Repository
-
-```bash
-git clone https://github.com/TST14/discipline-tracker.git
-cd discipline-tracker
-```
-
----
-
-## Step 2 — Start PostgreSQL (via Docker)
-
-> Docker Desktop must be running before this step.
-
-```bash
-docker run -d \
-  --name discipline-pg \
-  -e POSTGRES_USER=tracker \
-  -e POSTGRES_PASSWORD=tracker123 \
-  -e POSTGRES_DB=discipline_tracker \
-  -p 5432:5432 \
-  postgres:16-alpine
-```
-
-**Windows PowerShell:**
-```powershell
-docker run -d `
-  --name discipline-pg `
-  -e POSTGRES_USER=tracker `
-  -e POSTGRES_PASSWORD=tracker123 `
-  -e POSTGRES_DB=discipline_tracker `
-  -p 5432:5432 `
-  postgres:16-alpine
-```
-
-Verify it's ready:
-```bash
-docker exec discipline-pg pg_isready -U tracker
-# Expected: /var/run/postgresql:5432 - accepting connections
-```
-
----
-
-## Step 3 — Backend Setup
-
-```bash
-cd backend
-```
-
-### 3a. Create Python virtual environment
-
-**Mac / Linux:**
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-**Windows PowerShell:**
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-### 3b. Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 3c. Create `.env` file
-
-```bash
-cp .env.example .env
-```
-
-The default `.env` matches the Docker container from Step 2 — no changes needed for local dev:
-```
-DATABASE_URL=postgresql://tracker:tracker123@localhost:5432/discipline_tracker
-```
-
-> For Oracle Cloud or another server, replace with your actual connection string.
-
-### 3d. Run the backend
-
-**Mac / Linux:**
-```bash
-uvicorn main:app --reload --port 8000
-```
-
-**Windows PowerShell** (from repo root):
-```powershell
-$env:PATH = "c:\path\to\discipline-tracker\backend\.venv\Scripts;$env:PATH"
-uvicorn main:app --reload --port 8000 --app-dir "c:\path\to\discipline-tracker\backend"
-```
-
-> Replace `c:\path\to\discipline-tracker` with your actual path.
-
-**DB tables are created automatically on first run.**
-
-Verify at: http://localhost:8000/health → should return `{"status": "ok"}`  
-API docs: http://localhost:8000/docs
-
----
-
-## Step 4 — Frontend Setup
-
-Open a **new terminal** from the repo root:
-
-```bash
-cd frontend
-```
-
-### 4a. Install dependencies
-
-```bash
-npm install
-```
-
-### 4b. Create `.env` file
-
-```bash
-cp .env.example .env
-```
-
-Contents (points to local backend):
-```
-VITE_API_URL=http://localhost:8000
-```
-
-> For production (after deploying backend to Oracle/Render), update this to your server URL.
-
-### 4c. Run the frontend
-
-```bash
-npm run dev
-```
-
-App opens at: **http://localhost:3000**
-
----
-
-## Step 5 — First-Time App Setup
-
-1. Open **http://localhost:3000**
-2. Go to the **Configure** tab
-3. Add your habits with max points and scoring type:
-
-| Habit | Max Points | Scoring Type |
-|---|---|---|
-| Wakeup | 30 | Time of Day |
-| Meditation | 80 | Duration |
-| Running | 50 | Duration |
-| Gym | 50 | Duration |
-| Books | 40 | Duration |
-| Brush | 10 | Boolean |
-
-4. Click **Rules** on each habit to set up scoring thresholds
-
-**Example — Wakeup (Time of Day):**
-| Condition | Value | % |
-|---|---|---|
-| ≤ | 04:00 | 100 |
-| ≤ | 05:00 | 75 |
-| ≤ | 06:00 | 50 |
-| > | 08:00 | 0 |
-
-**Example — Meditation (Duration):**
-| Condition | Value | % |
-|---|---|---|
-| ≥ | 45 | 100 |
-| ≥ | 20 | 50 |
-| < | 20 | 0 |
-
-5. Switch to **Today** tab and start logging!
-
----
-
-## Restart After Reboot
-
-Every time you restart your machine:
-
-```bash
-# Start the database
-docker start discipline-pg
-
-# Start backend (Terminal 1)
-# Mac/Linux:
-cd backend && source .venv/bin/activate && uvicorn main:app --reload --port 8000
-
-# Windows PowerShell:
-$env:PATH = "c:\path\to\backend\.venv\Scripts;$env:PATH"
-uvicorn main:app --reload --port 8000 --app-dir "c:\path\to\backend"
-
-# Start frontend (Terminal 2)
-cd frontend && npm run dev
-```
-
----
-
-## Deployment (Coming Next)
-
-| Layer | Platform | Notes |
-|---|---|---|
-| **Frontend** | Vercel (free) | Connect GitHub repo, set `VITE_API_URL` env var |
-| **Backend + DB** | Oracle Cloud Free VM | Ubuntu VM, run FastAPI + PostgreSQL |
-
-See **DEPLOY.md** (created during deployment setup) for step-by-step instructions.
-
----
-
-## Project Structure
-
-```
-discipline-tracker/
-├── frontend/                  ← React + Vite + Tailwind
-│   ├── src/
-│   │   ├── App.jsx
-│   │   ├── api/client.js      ← All API calls
-│   │   └── components/
-│   │       ├── DailyTracker.jsx   ← Daily habit log
-│   │       └── HabitConfig.jsx    ← Habits + scoring rules editor
-│   ├── .env.example
-│   └── package.json
-│
-├── backend/                   ← Python FastAPI
-│   ├── main.py                ← App entry point + CORS
-│   ├── models.py              ← DB table definitions
-│   ├── schemas.py             ← Request/response validation
-│   ├── scoring.py             ← Dynamic points engine
-│   ├── database.py            ← DB connection
-│   ├── routers/
-│   │   ├── habits.py          ← Habit + rules CRUD
-│   │   └── entries.py         ← Daily entries + summary
-│   ├── .env.example
-│   └── requirements.txt
-│
-├── .gitignore
-└── SETUP.md                   ← This file
-```
-
----
-
-## Troubleshooting
-
-**`npm install` fails with auth error**
-```powershell
-npm config delete //registry.npmjs.org/:_authToken
-npm install
-```
-
-**Backend can't find `.env`**  
-Make sure `.env` exists in the `backend/` folder (not the root). Copy from `.env.example`.
-
-**PostgreSQL connection refused**  
-```bash
-docker start discipline-pg
-docker exec discipline-pg pg_isready -U tracker
-```
-
-**Port 8000 or 3000 already in use**  
-```powershell
-# Find and kill the process using the port
-netstat -ano | findstr :8000
-taskkill /PID <PID> /F
 ```
