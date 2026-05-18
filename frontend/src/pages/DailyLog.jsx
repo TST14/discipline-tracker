@@ -101,7 +101,29 @@ function computeGaps(entries, taskEntries, habits) {
   }
   return gaps
 }
+// Returns the latest end-time (HH:mm) across all logged habit + task entries.
+// Used by quick-register to pre-fill a new entry's start_time.
+function getLatestEndTime(entries, taskEntries) {
+  let maxMins = null
 
+  Object.values(entries).forEach(e => {
+    if (!e.start_time) return
+    let endMins = null
+    if (e.end_time) endMins = timeToMinutes(e.end_time)
+    else if (e.duration_minutes > 0) endMins = timeToMinutes(e.start_time) + e.duration_minutes
+    if (endMins !== null && (maxMins === null || endMins > maxMins)) maxMins = endMins
+  })
+
+  taskEntries.forEach(te => {
+    if (!te.start_time) return
+    let endMins = null
+    if (te.end_time) endMins = timeToMinutes(te.end_time)
+    else if (te.duration_minutes > 0) endMins = timeToMinutes(te.start_time) + te.duration_minutes
+    if (endMins !== null && (maxMins === null || endMins > maxMins)) maxMins = endMins
+  })
+
+  return maxMins !== null ? minutesToTime(maxMins) : null
+}
 // ─── component ──────────────────────────────────────────────────────────────
 
 export default function DailyLog() {
@@ -258,6 +280,58 @@ export default function DailyLog() {
     }
   }
 
+  // ⚡ Quick-register a habit: start = latest end-time of any entry, end = now.
+  const handleQuickRegister = async (habitId) => {
+    const latestEnd = getLatestEndTime(entries, taskEntries)
+    const now = dayjs().format('HH:mm')
+    const startTime = latestEnd || now
+    const endTime   = now
+    const startMins = timeToMinutes(startTime)
+    const endMins   = timeToMinutes(endTime)
+    const dur = endMins > startMins ? endMins - startMins : null
+
+    const current = entries[habitId] || {}
+    const updated = { ...current, habit_id: habitId, entry_date: date, start_time: startTime, end_time: endTime, duration_minutes: dur }
+    setEntries(prev => ({ ...prev, [habitId]: updated }))
+    setSaving(prev => ({ ...prev, [habitId]: true }))
+    try {
+      const saved = await upsertEntry(updated)
+      setEntries(prev => ({ ...prev, [habitId]: saved }))
+      setSummary(await getDailySummary(date))
+    } catch {
+      setError('Failed to save entry.')
+    } finally {
+      setSaving(prev => ({ ...prev, [habitId]: false }))
+    }
+  }
+
+  // ⚡ Quick-register a task entry: same logic as habits.
+  const handleQuickRegisterTask = async (taskEntry) => {
+    const latestEnd = getLatestEndTime(entries, taskEntries)
+    const now = dayjs().format('HH:mm')
+    const startTime = latestEnd || now
+    const endTime   = now
+    const startMins = timeToMinutes(startTime)
+    const endMins   = timeToMinutes(endTime)
+    const dur = endMins > startMins ? endMins - startMins : null
+
+    const updated = { ...taskEntry, start_time: startTime, end_time: endTime, duration_minutes: dur }
+    setTaskEntries(prev => prev.map(t => t.id === taskEntry.id ? updated : t))
+    setSavingTask(prev => ({ ...prev, [taskEntry.id]: true }))
+    try {
+      const saved = await upsertTaskEntry({
+        todo_id: taskEntry.todo_id, entry_date: date,
+        start_time: updated.start_time, end_time: updated.end_time, duration_minutes: updated.duration_minutes,
+      })
+      setTaskEntries(prev => prev.map(t => t.id === taskEntry.id ? saved : t))
+      setSummary(await getDailySummary(date))
+    } catch {
+      setError('Failed to save task entry.')
+    } finally {
+      setSavingTask(prev => ({ ...prev, [taskEntry.id]: false }))
+    }
+  }
+
   // ── render ─────────────────────────────────────────────────────────────────
 
   // Habits with a start_time logged today → sorted by that time (ascending).
@@ -342,6 +416,7 @@ export default function DailyLog() {
                 isSaving={!!saving[habit.id]}
                 onChange={(field, value) => handleFieldChange(habit.id, field, value)}
                 onClear={entries[habit.id]?.id ? () => handleClearEntry(habit.id) : undefined}
+                onQuickRegister={() => handleQuickRegister(habit.id)}
               />
             ))
           )}
@@ -446,6 +521,8 @@ export default function DailyLog() {
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                           <div className="text-sm"><ScoreBadge earned={te.earned_points} max={te.todo_max_points} /></div>
+                          <button onClick={() => handleQuickRegisterTask(te)}
+                            className="text-gray-500 hover:text-yellow-400 transition-colors text-sm flex-shrink-0" title="Quick register: prev end → now">⚡</button>
                           <button onClick={() => removeTaskEntry(te)}
                             className="text-gray-600 hover:text-red-400 transition-colors text-sm font-bold" title="Remove from today">✕</button>
                         </div>
@@ -463,8 +540,10 @@ export default function DailyLog() {
                           className={`${INPUT_CLS} flex-1 sm:flex-none sm:w-[90px] lg:w-[110px]`} />
                         <input type="number" min="0" value={te.duration_minutes ?? ''}
                           onChange={e => handleTaskFieldChange(te, 'duration_minutes', e.target.value)}
-                          placeholder="mins" className={`${INPUT_CLS} w-14 lg:w-20 text-center`} />
+                          placeholder="mins" className={`${INPUT_CLS} w-16 lg:w-24 text-center`} />
                         <div className="hidden sm:block text-sm flex-shrink-0"><ScoreBadge earned={te.earned_points} max={te.todo_max_points} /></div>
+                        <button onClick={() => handleQuickRegisterTask(te)}
+                          className="hidden sm:block text-gray-500 hover:text-yellow-400 transition-colors text-sm flex-shrink-0" title="Quick register: prev end → now">⚡</button>
                         <button onClick={() => removeTaskEntry(te)}
                           className="hidden sm:block text-gray-600 hover:text-red-400 transition-colors text-sm font-bold flex-shrink-0" title="Remove from today">✕</button>
                       </div>

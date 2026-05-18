@@ -14,7 +14,7 @@ const INPUT_CLS =
  *   isSaving    — boolean, shows pulsing dot while saving
  *   onChange    — (field, value) => void
  */
-export default function HabitRow({ habit, entry, isSaving, onChange, onClear }) {
+export default function HabitRow({ habit, entry, isSaving, onChange, onClear, onQuickRegister }) {
   const type = habit.scoring_type
 
   // ── Time-of-day (single time input) ──────────────────────────────
@@ -85,6 +85,10 @@ export default function HabitRow({ habit, entry, isSaving, onChange, onClear }) 
         </div>
         <div className="flex items-center gap-2 flex-shrink-0 ml-3">
           <div className="text-sm"><ScoreBadge earned={entry.earned_points} max={habit.max_points} /></div>
+          {onQuickRegister && (
+            <button onClick={onQuickRegister} title="Quick register: prev end → now"
+              className="text-gray-500 hover:text-yellow-400 transition-colors text-sm">⚡</button>
+          )}
           {hasData && onClear && (
             <button onClick={onClear} title="Clear entry"
               className="text-gray-600 hover:text-red-400 transition-colors text-sm font-bold">✕</button>
@@ -101,11 +105,15 @@ export default function HabitRow({ habit, entry, isSaving, onChange, onClear }) 
         </div>
         <input type="time" value={entry.start_time || ''} onChange={e => onChange('start_time', e.target.value)} className={`${INPUT_CLS} flex-1 sm:flex-none sm:w-[90px] lg:w-[110px]`} />
         <input type="time" value={entry.end_time || ''} onChange={e => onChange('end_time', e.target.value)} className={`${INPUT_CLS} flex-1 sm:flex-none sm:w-[90px] lg:w-[110px]`} />
-        <input type="number" min="0" value={entry.duration_minutes ?? ''} onChange={e => onChange('duration_minutes', e.target.value)} placeholder="mins" className={`${INPUT_CLS} w-14 lg:w-20 text-center`} />
+        <input type="number" min="0" value={entry.duration_minutes ?? ''} onChange={e => onChange('duration_minutes', e.target.value)} placeholder="mins" className={`${INPUT_CLS} w-16 lg:w-24 text-center`} />
         {/* Score + clear — hidden on mobile (shown above), visible on sm+ */}
         <div className="hidden sm:block w-16 text-right text-sm flex-shrink-0">
           <ScoreBadge earned={entry.earned_points} max={habit.max_points} />
         </div>
+        {onQuickRegister && (
+          <button onClick={onQuickRegister} title="Quick register: prev end → now"
+            className="hidden sm:block text-gray-500 hover:text-yellow-400 transition-colors text-sm flex-shrink-0">⚡</button>
+        )}
         {hasData && onClear && (
           <button onClick={onClear} title="Clear entry"
             className="hidden sm:block text-gray-600 hover:text-red-400 transition-colors text-sm font-bold flex-shrink-0">✕</button>

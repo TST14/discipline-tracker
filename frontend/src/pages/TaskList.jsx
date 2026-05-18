@@ -40,6 +40,8 @@ const STATUS_CONFIG = {
 
 const FILTERS = ['all', 'pending', 'done', 'skipped']
 
+const STATUS_ORDER = { pending: 0, done: 1, skipped: 2 }
+
 // Format "2026-05-16" → "16 May" (same year) or "16 May 2026" (different year)
 function formatDate(dateStr) {
   if (!dateStr) return ''
@@ -420,10 +422,9 @@ export default function TaskList() {
 
   // Reorder operates only on the active list; historical todos are unaffected.
   const moveTodo = async (idx, direction) => {
-    const active = getActive()
     const target = idx + direction
-    if (target < 0 || target >= active.length) return
-    const swapped = [...active]
+    if (target < 0 || target >= filteredTodos.length) return
+    const swapped = [...filteredTodos]
     ;[swapped[idx], swapped[target]] = [swapped[target], swapped[idx]]
     setTodos([...swapped, ...getHistorical()])
     try {
@@ -449,8 +450,7 @@ export default function TaskList() {
     dragIdx.current = null
     setDragOverIdx(null)
     if (from === null || from === idx) return
-    const active = getActive()
-    const reordered = [...active]
+    const reordered = [...filteredTodos]
     const [moved] = reordered.splice(from, 1)
     reordered.splice(idx, 0, moved)
     setTodos([...reordered, ...getHistorical()])
@@ -503,8 +503,7 @@ export default function TaskList() {
     touchStartPos.current = null
     setDragOverIdx(null)
     if (!wasDragging || from === null || to === null || from === to) return
-    const active = getActive()
-    const reordered = [...active]
+    const reordered = [...filteredTodos]
     const [moved] = reordered.splice(from, 1)
     reordered.splice(to, 0, moved)
     setTodos([...reordered, ...getHistorical()])
@@ -518,7 +517,9 @@ export default function TaskList() {
 
   const activeTodos     = getActive()
   const historicalTodos = getHistorical()
-  const filteredTodos   = filter === 'all' ? activeTodos : activeTodos.filter(t => t.status === filter)
+  const filteredTodos   = filter === 'all'
+    ? [...activeTodos].sort((a, b) => (STATUS_ORDER[a.status] ?? 0) - (STATUS_ORDER[b.status] ?? 0))
+    : activeTodos.filter(t => t.status === filter)
   const counts = activeTodos.reduce((acc, t) => { acc[t.status] = (acc[t.status] || 0) + 1; return acc }, {})
 
   return (
@@ -604,7 +605,7 @@ export default function TaskList() {
                       <button onClick={() => moveTodo(idx, -1)} disabled={idx === 0}
                         title="Move up"
                         className="text-gray-600 hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed leading-none text-xs transition-colors">▲</button>
-                      <button onClick={() => moveTodo(idx, 1)} disabled={idx === activeTodos.length - 1}
+                      <button onClick={() => moveTodo(idx, 1)} disabled={idx === filteredTodos.length - 1}
                         title="Move down"
                         className="text-gray-600 hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed leading-none text-xs transition-colors">▼</button>
                     </div>
