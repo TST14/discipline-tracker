@@ -169,6 +169,7 @@ class TodoOut(BaseModel):
 # ── Daily Task Entries (todos picked for a day) ───────────────────────────────
 
 class TaskEntryUpsert(BaseModel):
+    id: Optional[int] = Field(None, gt=0)   # if provided → UPDATE that row; if omitted → INSERT new
     todo_id: int = Field(..., gt=0)
     entry_date: date
     start_time: Optional[str] = Field(None, pattern=r"^\d{1,2}:\d{2}$")

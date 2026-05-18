@@ -133,10 +133,17 @@ def daily_summary(date: ddate = Query(...), db: Session = Depends(get_db)):
     earned_map = {e.habit_id: float(e.earned_points or 0) for e in habit_entries}
     habit_earned = sum(earned_map.get(h.id, 0) for h in habits)
 
-    # Include picked task entries for the day
+    # Include picked task entries for the day.
+    # A pending task may have multiple entries (separate time blocks), so
+    # sum earned_points across all rows but count max_points only once per todo.
     task_entries = db.query(DailyTaskEntry).filter(DailyTaskEntry.entry_date == date).all()
     task_earned = sum(float(e.earned_points or 0) for e in task_entries)
-    task_max = sum(int(e.todo.max_points or 0) for e in task_entries)
+    seen_todo_ids: set[int] = set()
+    task_max = 0
+    for e in task_entries:
+        if e.todo_id not in seen_todo_ids:
+            task_max += int(e.todo.max_points or 0)
+            seen_todo_ids.add(e.todo_id)
 
     total_earned = habit_earned + task_earned
     total_max += task_max

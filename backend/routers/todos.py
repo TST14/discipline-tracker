@@ -10,7 +10,7 @@ DELETE /todos/{id}               — hard delete
 GET    /todos/{id}/rules         — list scoring rules for a todo
 PUT    /todos/{id}/rules         — replace all rules, then recompute historic entries
 GET    /todos/entries            — list DailyTaskEntries for a date
-POST   /todos/entries            — upsert a task entry (create or update by date+todo)
+POST   /todos/entries            — create a new entry (no id) or update an existing one (id required)
 DELETE /todos/entries/{id}       — delete a task entry
 
 Timezone note
@@ -21,7 +21,6 @@ app behaves correctly regardless of the server's system timezone.
 from datetime import date as ddate, datetime as _dt, time as dtime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from database import get_db
 
 # India Standard Time = UTC+5:30 (no DST, so a fixed offset is always correct)
@@ -223,7 +222,9 @@ def list_task_entries(date: ddate = Query(...), db: Session = Depends(get_db)):
 def upsert_task_entry(payload: TaskEntryUpsert, db: Session = Depends(get_db)):
     """Create or update a daily task entry.
 
-    Uses PostgreSQL ON CONFLICT DO UPDATE keyed on (entry_date, todo_id).
+    If payload.id is provided → UPDATE that specific row (field-level edit).
+    If payload.id is omitted  → INSERT a new row (new time block for the task).
+
     earned_points is always recalculated — never taken from the client.
     For boolean/no_rule todos, end_time and duration_minutes are cleared
     so stale data from a previous scoring type never affects gap detection.
@@ -263,9 +264,21 @@ def upsert_task_entry(payload: TaskEntryUpsert, db: Session = Depends(get_db)):
     )
     earned = calculate_earned_points(todo, tmp, rules)
 
-    stmt = (
-        pg_insert(DailyTaskEntry)
-        .values(
+    if payload.id is not None:
+        # UPDATE the specific existing entry identified by id
+        entry = db.get(DailyTaskEntry, payload.id)
+        if not entry:
+            raise HTTPException(status_code=404, detail="Task entry not found")
+        if entry.todo_id != payload.todo_id:
+            raise HTTPException(status_code=400, detail="Entry does not belong to this todo")
+        entry.start_time = start
+        entry.end_time = end
+        entry.duration_minutes = dur
+        entry.earned_points = earned
+        db.commit()
+    else:
+        # INSERT a new entry row (allows multiple time blocks per task per day)
+        entry = DailyTaskEntry(
             entry_date=payload.entry_date,
             todo_id=payload.todo_id,
             start_time=start,
@@ -273,20 +286,9 @@ def upsert_task_entry(payload: TaskEntryUpsert, db: Session = Depends(get_db)):
             duration_minutes=dur,
             earned_points=earned,
         )
-        .on_conflict_do_update(
-            constraint="uq_task_entry_date_todo",
-            set_={
-                "start_time": start,
-                "end_time": end,
-                "duration_minutes": dur,
-                "earned_points": earned,
-            },
-        )
-        .returning(DailyTaskEntry)
-    )
-    result = db.execute(stmt)
-    db.commit()
-    entry = result.scalars().first()
+        db.add(entry)
+        db.commit()
+
     # Reload with todo relationship (avoids lazy-load N+1)
     entry = (
         db.query(DailyTaskEntry)

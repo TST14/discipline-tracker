@@ -143,8 +143,4 @@ class DailyTaskEntry(Base):
     duration_minutes = Column(Integer, nullable=True)
     earned_points = Column(Numeric(6, 2), nullable=True)
 
-    __table_args__ = (
-        UniqueConstraint("entry_date", "todo_id", name="uq_task_entry_date_todo"),
-    )
-
     todo = relationship("Todo", back_populates="task_entries")

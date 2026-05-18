@@ -154,8 +154,7 @@ export default function DailyLog() {
       setEntries(map)
       setSummary(s)
       setTaskEntries(te)
-      const addedIds = new Set(te.map(t => t.todo_id))
-      setPendingTodos(pt.filter(t => !addedIds.has(t.id)))
+      setPendingTodos(pt)  // show all pending todos — tasks can have multiple entries per day
     } catch {
       setError('Could not connect to backend. Make sure the API server is running.')
     }
@@ -229,6 +228,7 @@ export default function DailyLog() {
     setSavingTask(prev => ({ ...prev, [taskEntry.id]: true }))
     try {
       const saved = await upsertTaskEntry({
+        id: taskEntry.id,
         todo_id: taskEntry.todo_id,
         entry_date: date,
         start_time: updated.start_time || null,
@@ -263,7 +263,7 @@ export default function DailyLog() {
     try {
       const saved = await upsertTaskEntry({ todo_id: todo.id, entry_date: date })
       setTaskEntries(prev => [...prev, saved])
-      setPendingTodos(prev => prev.filter(t => t.id !== todo.id))
+      // Don't remove from pendingTodos — a pending task can be logged multiple times
       setShowTaskPicker(false)
       setSummary(await getDailySummary(date))
     } catch {
@@ -281,17 +281,21 @@ export default function DailyLog() {
   }
 
   // ⚡ Quick-register a habit: start = latest end-time of any entry, end = now.
+  // Second session: keeps original start_time, accumulates duration_minutes.
   const handleQuickRegister = async (habitId) => {
     const latestEnd = getLatestEndTime(entries, taskEntries)
     const now = dayjs().format('HH:mm')
-    const startTime = latestEnd || now
-    const endTime   = now
-    const startMins = timeToMinutes(startTime)
-    const endMins   = timeToMinutes(endTime)
-    const dur = endMins > startMins ? endMins - startMins : null
+    const endTime = now
+    const sessionStart = latestEnd || now
+    const newDur = timeToMinutes(endTime) > timeToMinutes(sessionStart)
+      ? timeToMinutes(endTime) - timeToMinutes(sessionStart)
+      : 0
 
     const current = entries[habitId] || {}
-    const updated = { ...current, habit_id: habitId, entry_date: date, start_time: startTime, end_time: endTime, duration_minutes: dur }
+    const isSecondSession = !!(current.start_time || current.duration_minutes)
+    const startTime    = isSecondSession ? current.start_time : sessionStart
+    const totalDur     = isSecondSession ? (current.duration_minutes || 0) + newDur : (newDur || null)
+    const updated = { ...current, habit_id: habitId, entry_date: date, start_time: startTime, end_time: endTime, duration_minutes: totalDur }
     setEntries(prev => ({ ...prev, [habitId]: updated }))
     setSaving(prev => ({ ...prev, [habitId]: true }))
     try {
@@ -306,21 +310,24 @@ export default function DailyLog() {
   }
 
   // ⚡ Quick-register a task entry: same logic as habits.
+  // Second session: keeps original start_time, accumulates duration_minutes.
   const handleQuickRegisterTask = async (taskEntry) => {
     const latestEnd = getLatestEndTime(entries, taskEntries)
     const now = dayjs().format('HH:mm')
-    const startTime = latestEnd || now
-    const endTime   = now
-    const startMins = timeToMinutes(startTime)
-    const endMins   = timeToMinutes(endTime)
-    const dur = endMins > startMins ? endMins - startMins : null
+    const endTime = now
+    const sessionStart = latestEnd || now
+    const newDur = timeToMinutes(endTime) > timeToMinutes(sessionStart)
+      ? timeToMinutes(endTime) - timeToMinutes(sessionStart)
+      : 0
 
-    const updated = { ...taskEntry, start_time: startTime, end_time: endTime, duration_minutes: dur }
+    const isSecondSession = !!(taskEntry.start_time || taskEntry.duration_minutes)
+    const startTime = isSecondSession ? taskEntry.start_time : sessionStart
+    const totalDur  = isSecondSession ? (taskEntry.duration_minutes || 0) + newDur : (newDur || null)
+    const updated = { ...taskEntry, start_time: startTime, end_time: endTime, duration_minutes: totalDur }
     setTaskEntries(prev => prev.map(t => t.id === taskEntry.id ? updated : t))
     setSavingTask(prev => ({ ...prev, [taskEntry.id]: true }))
     try {
-      const saved = await upsertTaskEntry({
-        todo_id: taskEntry.todo_id, entry_date: date,
+      const saved = await upsertTaskEntry({        id: taskEntry.id,        todo_id: taskEntry.todo_id, entry_date: date,
         start_time: updated.start_time, end_time: updated.end_time, duration_minutes: updated.duration_minutes,
       })
       setTaskEntries(prev => prev.map(t => t.id === taskEntry.id ? saved : t))
@@ -435,19 +442,31 @@ export default function DailyLog() {
 
         {showTaskPicker && (
           <div className="bg-gray-800 rounded-xl p-3 mb-3 space-y-1">
-            {pendingTodos.length === 0 ? (
-              <p className="text-xs text-gray-500 text-center py-2">
-                No pending tasks. Add some in the <strong>Tasks</strong> tab.
-              </p>
-            ) : (
-              pendingTodos.map(todo => (
-                <button key={todo.id} onClick={() => pickTodo(todo)}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-700 transition-colors text-left">
-                  <span className="text-sm text-white">{todo.title}</span>
-                  {todo.max_points > 0 && <span className="text-xs text-gray-500 ml-2">{todo.max_points} pts</span>}
-                </button>
-              ))
-            )}
+            {(() => {
+              // Boolean tasks may only appear once per day — exclude them once added.
+              // Duration/time/no_rule tasks remain pickable for multiple time blocks.
+              const addedBooleanIds = new Set(
+                taskEntries
+                  .filter(te => (te.todo_scoring_type || 'boolean') === 'boolean')
+                  .map(te => te.todo_id)
+              )
+              const pickerTodos = pendingTodos.filter(todo =>
+                todo.scoring_type !== 'boolean' || !addedBooleanIds.has(todo.id)
+              )
+              return pickerTodos.length === 0 ? (
+                <p className="text-xs text-gray-500 text-center py-2">
+                  No pending tasks. Add some in the <strong>Tasks</strong> tab.
+                </p>
+              ) : (
+                pickerTodos.map(todo => (
+                  <button key={todo.id} onClick={() => pickTodo(todo)}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-700 transition-colors text-left">
+                    <span className="text-sm text-white">{todo.title}</span>
+                    {todo.max_points > 0 && <span className="text-xs text-gray-500 ml-2">{todo.max_points} pts</span>}
+                  </button>
+                ))
+              )
+            })()}
           </div>
         )}
 

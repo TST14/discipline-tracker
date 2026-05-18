@@ -146,7 +146,8 @@ def _build_days(
         task_earned_map: dict[int, float] = {}
         for e in task_entries:
             tid = e.todo_id
-            task_earned_map[tid] = float(e.earned_points or 0)
+            # SUM across multiple entries for the same todo (multi-session support)
+            task_earned_map[tid] = task_earned_map.get(tid, 0.0) + float(e.earned_points or 0)
             if tid not in todos_seen:
                 todos_seen[tid] = {
                     "id": tid,
