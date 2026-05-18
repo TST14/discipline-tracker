@@ -1,3 +1,9 @@
+"""database.py — SQLAlchemy engine, session factory, and declarative base.
+
+All models inherit from `Base`.  Every FastAPI route that needs a DB
+session should declare a dependency on `get_db`, which yields a
+`Session` and automatically closes it after the request.
+"""
 from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
@@ -36,6 +42,7 @@ class Base(DeclarativeBase):
 
 
 def get_db():
+    """FastAPI dependency — yields a DB session and closes it when the request finishes."""
     db = SessionLocal()
     try:
         yield db

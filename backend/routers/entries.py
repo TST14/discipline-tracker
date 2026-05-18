@@ -1,3 +1,15 @@
+"""routers/entries.py — Daily habit entry endpoints.
+
+Endpoints
+---------
+GET    /entries              — list all entries for a given date
+POST   /entries              — upsert an entry (create or update by date+habit)
+DELETE /entries/{id}         — delete a single entry
+GET    /entries/summary      — total earned/max/percentage for a date
+
+Each POST automatically recomputes earned_points via the scoring engine
+so the client never has to send a points value.
+"""
 from datetime import date as ddate, time as dtime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -11,6 +23,7 @@ router = APIRouter(prefix="/entries", tags=["entries"])
 
 
 def _parse_time(s: str | None) -> dtime | None:
+    """Parse an "HH:MM" string to a `datetime.time`.  Raises 422 on bad format."""
     if not s:
         return None
     try:
@@ -24,12 +37,19 @@ def _parse_time(s: str | None) -> dtime | None:
 
 @router.get("", response_model=list[EntryOut])
 def list_entries(date: ddate = Query(...), db: Session = Depends(get_db)):
+    """Return all DailyEntries for a specific date."""
     rows = db.query(DailyEntry).filter(DailyEntry.entry_date == date).all()
     return [EntryOut.from_orm_entry(r) for r in rows]
 
 
 @router.post("", response_model=EntryOut)
 def upsert_entry(payload: EntryUpsert, db: Session = Depends(get_db)):
+    """Create or update a daily habit entry.
+
+    Uses PostgreSQL ON CONFLICT DO UPDATE keyed on (entry_date, habit_id)
+    so calling this endpoint twice for the same habit+date is safe.
+    earned_points is always recalculated — never taken from the client.
+    """
     habit = db.get(Habit, payload.habit_id)
     if not habit:
         raise HTTPException(status_code=404, detail="Habit not found")
@@ -92,6 +112,7 @@ def upsert_entry(payload: EntryUpsert, db: Session = Depends(get_db)):
 
 @router.delete("/{entry_id}", status_code=204)
 def delete_entry(entry_id: int, db: Session = Depends(get_db)):
+    """Delete a daily habit entry (silently succeeds if already missing)."""
     entry = db.get(DailyEntry, entry_id)
     if entry:
         db.delete(entry)
@@ -100,6 +121,11 @@ def delete_entry(entry_id: int, db: Session = Depends(get_db)):
 
 @router.get("/summary", response_model=DailySummary)
 def daily_summary(date: ddate = Query(...), db: Session = Depends(get_db)):
+    """Return aggregate totals for a date: earned, max, and percentage.
+
+    Includes both habit entries and any task entries logged for that date,
+    so the score card on the Daily Log page reflects the full day's work.
+    """
     habits = db.query(Habit).filter(Habit.is_active == True).all()
     total_max = sum(h.max_points for h in habits)
 

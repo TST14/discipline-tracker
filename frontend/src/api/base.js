@@ -1,3 +1,10 @@
+/**
+ * api/base.js — Axios instance shared by all API modules.
+ *
+ * Base URL is read from VITE_API_URL env var (defaults to http://localhost:8000).
+ * The response interceptor unwraps FastAPI error payloads so every rejected
+ * promise rejects with a plain Error whose .message is human-readable.
+ */
 import axios from 'axios'
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'

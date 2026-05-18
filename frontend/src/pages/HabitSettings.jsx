@@ -11,6 +11,7 @@ import {
 
 const SCORING_TYPES = [
   { value: 'boolean',            label: 'Boolean (done / not done)' },
+  { value: 'no_rule',            label: 'No Rule (always 100%)' },
   { value: 'duration',           label: 'Duration (step rules)' },
   { value: 'duration_linear',    label: 'Duration (linear — smooth per minute)' },
   { value: 'time_of_day',        label: 'Time of Day (step rules)' },
@@ -27,6 +28,7 @@ const CONDITION_LABELS = {
 
 const SCORING_TYPE_BADGE = {
   boolean:            { label: 'Boolean',          color: 'bg-blue-900 text-blue-300' },
+  no_rule:            { label: 'No Rule',           color: 'bg-teal-900 text-teal-300' },
   duration:           { label: 'Duration (step)',   color: 'bg-purple-900 text-purple-300' },
   duration_linear:    { label: 'Duration (linear)', color: 'bg-violet-900 text-violet-300' },
   time_of_day:        { label: 'Time (step)',       color: 'bg-amber-900 text-amber-300' },
@@ -47,6 +49,17 @@ function RulesEditor({ habit, onClose }) {
       .catch(() => { setError('Failed to load rules'); setLoading(false) })
   }, [habit.id])
 
+  const containerRef = useRef(null)
+  useEffect(() => {
+    const handleOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) onClose()
+    }
+    document.addEventListener('click', handleOutside)
+    return () => {
+      document.removeEventListener('click', handleOutside)
+    }
+  }, [onClose])
+
   const updateRule = (idx, field, val) =>
     setRules(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r))
 
@@ -57,7 +70,7 @@ function RulesEditor({ habit, onClose }) {
     setSaving(true)
     setError(null)
     try {
-      await setScoringRules(habit.id, rules.map((r, i) => ({ ...r, rule_order: i })))
+      await setScoringRules(habit.id, rules.map((r, i) => ({ ...r, rule_order: i, percentage: parseInt(r.percentage, 10) || 0 })))
       onClose()
     } catch {
       setError('Failed to save rules.')
@@ -72,7 +85,7 @@ function RulesEditor({ habit, onClose }) {
   const isDurationLinear = habit.scoring_type === 'duration_linear'
 
   return (
-    <div className="mt-4 bg-gray-800 rounded-xl p-4 space-y-4">
+    <div ref={containerRef} className="mt-4 bg-gray-800 rounded-xl p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-white">
           Scoring Rules — <span className="text-gray-400 font-normal">{habit.name}</span>
@@ -83,6 +96,12 @@ function RulesEditor({ habit, onClose }) {
       {habit.scoring_type === 'boolean' && (
         <p className="text-xs text-gray-500 italic">
           Boolean habits don't need rules — full points are awarded if any time or duration is logged.
+        </p>
+      )}
+
+      {habit.scoring_type === 'no_rule' && (
+        <p className="text-xs text-gray-500 italic">
+          No Rule habits don't need rules — full points are always awarded whenever this habit is logged, regardless of duration or time.
         </p>
       )}
 
@@ -111,7 +130,7 @@ function RulesEditor({ habit, onClose }) {
                 <input
                   type="text" inputMode="numeric" pattern="[0-9]*"
                   value={rule.percentage}
-                  onChange={e => updateRule(idx, 'percentage', parseInt(e.target.value, 10))}
+                  onChange={e => updateRule(idx, 'percentage', e.target.value.replace(/[^0-9]/g, ''))}
                   className="bg-gray-700 border border-gray-600 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500 w-full pr-5"
                 />
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 text-xs">%</span>
@@ -128,17 +147,23 @@ function RulesEditor({ habit, onClose }) {
         </>
       )}
 
-      {!isLinear && habit.scoring_type !== 'boolean' && (
+      {!isLinear && habit.scoring_type !== 'boolean' && habit.scoring_type !== 'no_rule' && (
         <>
           <p className="text-xs text-gray-500">
             Rules are evaluated top-to-bottom. The first matching rule determines the score %.
             {habit.scoring_type === 'time_of_day' && ' Values are in HH:MM (24h).'}
             {habit.scoring_type === 'duration' && ' Values are in minutes.'}
           </p>
+          <div className="grid grid-cols-2 gap-2 text-xs text-gray-500 font-medium px-1 sm:grid-cols-[1fr_1fr_80px_32px]">
+            <span>Condition</span>
+            <span>{habit.scoring_type === 'duration' ? 'Minutes' : 'Time (HH:MM)'}</span>
+            <span>Score %</span>
+            <span />
+          </div>
           {rules.map((rule, idx) => (
-            <div key={idx} className="grid grid-cols-[1fr_1fr_80px_32px] gap-2 items-center">
+            <div key={idx} className="grid grid-cols-2 gap-2 items-center sm:grid-cols-[1fr_1fr_80px_32px]">
               <select value={rule.condition} onChange={e => updateRule(idx, 'condition', e.target.value)}
-                className="bg-gray-700 border border-gray-600 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500">
+                className="min-w-0 bg-gray-700 border border-gray-600 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500">
                 {Object.entries(CONDITION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
               <input
@@ -147,11 +172,11 @@ function RulesEditor({ habit, onClose }) {
                 pattern={habit.scoring_type === 'time_of_day' ? undefined : '[0-9]*'}
                 value={rule.value}
                 onChange={e => updateRule(idx, 'value', e.target.value)}
-                className="bg-gray-700 border border-gray-600 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500"
+                className="min-w-0 bg-gray-700 border border-gray-600 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500"
               />
               <div className="relative">
                 <input type="text" inputMode="numeric" pattern="[0-9]*" value={rule.percentage}
-                  onChange={e => updateRule(idx, 'percentage', parseInt(e.target.value, 10))}
+                  onChange={e => updateRule(idx, 'percentage', e.target.value.replace(/[^0-9]/g, ''))}
                   className="bg-gray-700 border border-gray-600 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500 w-full pr-5" />
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 text-xs">%</span>
               </div>
@@ -170,11 +195,17 @@ function RulesEditor({ habit, onClose }) {
       {error && <p className="text-xs text-red-400">{error}</p>}
 
       <div className="flex justify-end gap-2">
-        <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">Cancel</button>
-        <button onClick={save} disabled={saving}
-          className="px-4 py-2 text-sm bg-white text-gray-900 rounded-lg font-medium hover:bg-gray-100 transition-colors disabled:opacity-50">
-          {saving ? 'Saving…' : 'Save Rules'}
-        </button>
+        {habit.scoring_type === 'boolean' || habit.scoring_type === 'no_rule' ? (
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">Close</button>
+        ) : (
+          <>
+            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">Cancel</button>
+            <button onClick={save} disabled={saving}
+              className="px-4 py-2 text-sm bg-white text-gray-900 rounded-lg font-medium hover:bg-gray-100 transition-colors disabled:opacity-50">
+              {saving ? 'Saving…' : 'Save Rules'}
+            </button>
+          </>
+        )}
       </div>
     </div>
   )
@@ -276,7 +307,7 @@ export default function HabitSettings() {
       : await updateHabit(editingHabit.id, form)
     setEditingHabit(null)
     await load()
-    if (saved.scoring_type !== 'boolean') setRulesHabit(saved)
+    if (saved.scoring_type !== 'boolean' && saved.scoring_type !== 'no_rule') setRulesHabit(saved)
   }
 
   const handleDelete = async (habit) => {

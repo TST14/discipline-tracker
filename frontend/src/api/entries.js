@@ -1,3 +1,11 @@
+/**
+ * api/entries.js — Daily habit entry endpoints.
+ *
+ * getEntries(date)      — GET  /entries?date=
+ * upsertEntry(data)     — POST /entries
+ * deleteEntry(id)       — DELETE /entries/:id
+ * getDailySummary(date) — GET  /entries/summary  (total earned/max/percentage)
+ */
 import { api } from './base'
 
 export const getEntries = (date) =>

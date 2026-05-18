@@ -105,6 +105,13 @@ function WeeklyView() {
           value={summary.best_day ? dayjs(summary.best_day).format('ddd D') : '—'}
           sub={summary.best_day ? `${summary.best_day_pct}%` : ''}
         />
+        {summary.total_gap_minutes > 0 && (
+          <SummaryCard
+            label="Unutilized Time"
+            value={`${summary.total_gap_minutes} min`}
+            sub={`${summary.days_with_gaps} day${summary.days_with_gaps === 1 ? '' : 's'} with gaps`}
+          />
+        )}
       </div>
 
       {/* Habit × Day heatmap grid */}
@@ -134,7 +141,7 @@ function WeeklyView() {
                   return (
                     <td key={i} className="px-2 py-2.5 text-center">
                       <span className={`inline-block px-2 py-1 rounded text-xs font-medium min-w-[42px] ${pctColor(pct)}`}>
-                        {hs?.done ? `${pct}%` : '—'}
+                        {hs?.done ? `${hs.earned}pt` : '—'}
                       </span>
                     </td>
                   )
@@ -159,7 +166,7 @@ function WeeklyView() {
                       return (
                         <td key={i} className="px-2 py-2.5 text-center">
                           <span className={`inline-block px-2 py-1 rounded text-xs font-medium min-w-[42px] ${ts?.done ? pctColor(pct) : 'bg-gray-800 text-gray-500'}`}>
-                            {ts?.done ? `${pct}%` : '—'}
+                            {ts?.done ? `${ts.earned}pt` : '—'}
                           </span>
                         </td>
                       )
@@ -169,13 +176,57 @@ function WeeklyView() {
               </>
             )}
 
-            {/* Per-day total row */}
-            <tr className="border-t border-gray-700 bg-gray-800/50">
-              <td className="px-4 lg:px-6 py-2.5 lg:py-3 text-gray-400 font-semibold text-xs lg:text-sm uppercase tracking-wider">Day Total</td>
+            {/* Unutilized row */}
+            <tr className="border-t border-gray-700">
+              <td className="px-4 lg:px-6 py-2 text-red-400 font-semibold text-xs uppercase tracking-wider">Unutilized</td>
+              {days.map((d, i) => (
+                <td key={i} className="px-2 py-2 text-center">
+                  {d.gap_minutes > 0 ? (
+                    <span className="inline-block px-2 py-1 rounded text-xs font-medium min-w-[42px] bg-red-950 text-red-400">
+                      −{d.gap_minutes}m
+                    </span>
+                  ) : (
+                    <span className="text-xs text-gray-700">—</span>
+                  )}
+                </td>
+              ))}
+            </tr>
+
+            {/* Net Points row */}
+            <tr className="border-t border-gray-700/50">
+              <td className="px-4 lg:px-6 py-2 text-gray-400 font-semibold text-xs uppercase tracking-wider">Net Points</td>
+              {days.map((d, i) => (
+                <td key={i} className="px-2 py-2 text-center">
+                  {d.total_max > 0 ? (
+                    <span className="text-xs font-medium text-white">{Math.round(d.adjusted_earned)} pts</span>
+                  ) : (
+                    <span className="text-xs text-gray-700">—</span>
+                  )}
+                </td>
+              ))}
+            </tr>
+
+            {/* Max Points row */}
+            <tr className="border-t border-gray-700/50">
+              <td className="px-4 lg:px-6 py-2 text-gray-400 font-semibold text-xs uppercase tracking-wider">Max Points</td>
+              {days.map((d, i) => (
+                <td key={i} className="px-2 py-2 text-center">
+                  {d.total_max > 0 ? (
+                    <span className="text-xs font-medium text-gray-300">{Math.round(d.total_max)} pts</span>
+                  ) : (
+                    <span className="text-xs text-gray-700">—</span>
+                  )}
+                </td>
+              ))}
+            </tr>
+
+            {/* Net % row */}
+            <tr className="border-t border-gray-700/50 bg-gray-800/50">
+              <td className="px-4 lg:px-6 py-2.5 text-gray-300 font-bold text-xs lg:text-sm uppercase tracking-wider">Net %</td>
               {days.map((d, i) => (
                 <td key={i} className="px-2 py-2.5 text-center">
-                  <span className={`inline-block px-2 py-1 rounded text-xs font-bold min-w-[42px] ${pctColor(d.percentage)}`}>
-                    {d.total_max > 0 ? `${d.percentage}%` : '—'}
+                  <span className={`inline-block px-2 py-1 rounded text-xs font-bold min-w-[42px] ${d.total_max > 0 ? pctColor(d.adjusted_percentage) : 'bg-gray-800 text-gray-600'}`}>
+                    {d.total_max > 0 ? `${d.adjusted_percentage}%` : '—'}
                   </span>
                 </td>
               ))}
@@ -262,14 +313,21 @@ function MonthlyView() {
         />
         <SummaryCard
           label="Goals Hit"
-          value={summary.days_above_80}
-          sub={`days ≥ 80% (of ${days.length})`}
+          value={`${summary.days_above_80} / ${days.length}`}
+          sub="days ≥ 80%"
         />
         <SummaryCard
           label="Best Day"
           value={summary.best_day ? dayjs(summary.best_day).format('MMM D') : '—'}
           sub={summary.best_day ? `${summary.best_day_pct}%` : ''}
         />
+        {summary.total_gap_minutes > 0 && (
+          <SummaryCard
+            label="Unutilized Time"
+            value={`${summary.total_gap_minutes} min`}
+            sub={`${summary.days_with_gaps} day${summary.days_with_gaps === 1 ? '' : 's'} with gaps`}
+          />
+        )}
       </div>
 
       {/* Calendar */}
@@ -295,14 +353,17 @@ function MonthlyView() {
               <div
                 key={d.date}
                 className={`rounded-md sm:rounded-lg p-1 sm:p-2 text-center select-none ${
-                  hasPts ? pctColor(d.percentage) : 'bg-gray-800/40 text-gray-500'
+                  hasPts ? pctColor(d.adjusted_percentage) : 'bg-gray-800/40 text-gray-500'
                 } ${isToday ? 'ring-2 ring-blue-500' : ''}`}
               >
                 <div className={`text-xs font-semibold leading-tight ${isToday ? 'text-blue-300' : ''}`}>
                   {dayNum}
                 </div>
                 {hasPts && (
-                  <div className="text-[10px] sm:text-xs mt-0.5 opacity-80 leading-tight">{d.percentage}%</div>
+                  <>
+                    <div className="text-[10px] sm:text-xs mt-0.5 opacity-90 leading-tight">{Math.round(d.adjusted_earned)}pt</div>
+                    <div className="text-[9px] sm:text-[10px] mt-0.5 opacity-80 leading-tight">{d.adjusted_percentage}%</div>
+                  </>
                 )}
               </div>
             )

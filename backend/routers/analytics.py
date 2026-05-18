@@ -1,11 +1,113 @@
+"""routers/analytics.py — Aggregated weekly and monthly progress endpoints.
+
+Endpoints
+---------
+GET /analytics/weekly?date=YYYY-MM-DD
+    Returns per-day habit/task scores for the Mon–Sun week containing `date`.
+
+GET /analytics/monthly?year=YYYY&month=M
+    Returns per-day habit/task scores for every day in the given month.
+
+Both endpoints share the same pipeline:
+  1. _fetch_period   — batch-load DailyEntries + DailyTaskEntries (2 DB queries)
+  2. _build_days     — compute per-day stats, gap minutes, and adjusted scores
+  3. _period_summary — roll up into weekly/monthly summary KPIs
+
+Gap / unutilized time
+---------------------
+_compute_gap_minutes mirrors the frontend computeGaps() logic exactly:
+  • Activities with a real time span (start + end or start + duration) are
+    placed on a timeline.
+  • time_of_day / time_of_day_linear entries with only start_time act as
+    point anchors.
+  • boolean / no_rule activities are always excluded (start_time is just a
+    click timestamp, not a real span).
+  Gaps between merged intervals are summed; the result is subtracted from
+  total_earned to produce adjusted_earned / adjusted_percentage.
+"""
 from datetime import date, timedelta
 from calendar import monthrange
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from database import get_db
 from models import Habit, DailyEntry, DailyTaskEntry
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
+
+
+def _time_to_mins(t) -> int | None:
+    """Convert a `datetime.time` to total minutes since midnight, or None."""
+    if t is None:
+        return None
+    return t.hour * 60 + t.minute
+
+
+def _compute_gap_minutes(habits: list, entries: list, task_entries: list) -> int:
+    """Mirrors frontend computeGaps(): total unutilized minutes between timed activities.
+
+    Included on the timeline:
+      - Any entry with both start + end/duration  (has a real span)
+      - time_of_day / time_of_day_linear entries with start only  (explicit clock anchor)
+    Excluded:
+      - boolean / no_rule 'done' markers  (start_time is just the click timestamp)
+      - incomplete duration entries with start only
+    """
+    habit_map = {h.id: h for h in habits}
+    intervals: list[list[int]] = []
+
+    for e in entries:
+        if e.start_time is None:
+            continue
+        habit = habit_map.get(e.habit_id)
+        if not habit:
+            continue
+        if habit.scoring_type in ('boolean', 'no_rule'):
+            continue
+        start = _time_to_mins(e.start_time)
+        end: int | None = None
+        if e.end_time:
+            end = _time_to_mins(e.end_time)
+        elif e.duration_minutes and e.duration_minutes > 0:
+            end = start + e.duration_minutes
+        if end is not None:
+            intervals.append([start, max(start, end)])
+        elif habit.scoring_type in ('time_of_day', 'time_of_day_linear'):
+            intervals.append([start, start])
+
+    for te in task_entries:
+        if te.start_time is None:
+            continue
+        scoring_type = te.todo.scoring_type if te.todo else ''
+        if scoring_type in ('boolean', 'no_rule'):
+            continue
+        start = _time_to_mins(te.start_time)
+        end: int | None = None
+        if te.end_time:
+            end = _time_to_mins(te.end_time)
+        elif te.duration_minutes and te.duration_minutes > 0:
+            end = start + te.duration_minutes
+        if end is not None:
+            intervals.append([start, max(start, end)])
+        elif scoring_type in ('time_of_day', 'time_of_day_linear'):
+            intervals.append([start, start])
+
+    if len(intervals) < 2:
+        return 0
+
+    intervals.sort(key=lambda x: x[0])
+    merged = [intervals[0][:]]
+    for s, e in intervals[1:]:
+        if s <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+
+    total_gap = 0
+    for i in range(1, len(merged)):
+        gap = merged[i][0] - merged[i - 1][1]
+        if gap > 0:
+            total_gap += gap
+    return total_gap
 
 
 def _build_days(
@@ -72,11 +174,18 @@ def _build_days(
         total_max = sum(h.max_points for h in habits) + task_max
         percentage = round(total_earned / total_max * 100, 1) if total_max > 0 else 0.0
 
+        gap_minutes = _compute_gap_minutes(habits, entries, task_entries)
+        adjusted_earned = max(0.0, total_earned - gap_minutes)
+        adjusted_pct = round(adjusted_earned / total_max * 100, 1) if total_max > 0 else 0.0
+
         days.append({
             "date": day.isoformat(),
             "total_earned": round(total_earned, 2),
             "total_max": total_max,
             "percentage": percentage,
+            "gap_minutes": gap_minutes,
+            "adjusted_earned": round(adjusted_earned, 2),
+            "adjusted_percentage": adjusted_pct,
             "habit_scores": habit_scores,
             "task_scores": task_scores,
         })
@@ -93,6 +202,7 @@ def _fetch_period(all_dates: list[date], db: Session) -> tuple[dict, dict]:
     )
     task_entries = (
         db.query(DailyTaskEntry)
+        .options(joinedload(DailyTaskEntry.todo))
         .filter(DailyTaskEntry.entry_date.in_(all_dates))
         .all()
     )
@@ -116,9 +226,10 @@ def _period_summary(days: list) -> dict:
 
     total_earned = round(sum(d["total_earned"] for d in days), 2)
     total_max = sum(d["total_max"] for d in days)
-    avg_pct = round(sum(d["percentage"] for d in days) / len(days), 1)
-    days_above_80 = sum(1 for d in days if d["percentage"] >= 80)
-    best = max(days, key=lambda d: d["percentage"])
+    avg_pct = round(sum(d["adjusted_percentage"] for d in days) / len(days), 1)
+    days_above_80 = sum(1 for d in days if d["adjusted_percentage"] >= 80)
+    best = max(days, key=lambda d: d["adjusted_percentage"])
+    total_gap_minutes = sum(d["gap_minutes"] for d in days)
 
     return {
         "total_earned": total_earned,
@@ -126,13 +237,23 @@ def _period_summary(days: list) -> dict:
         "avg_percentage": avg_pct,
         "days_above_80": days_above_80,
         "best_day": best["date"],
-        "best_day_pct": best["percentage"],
+        "best_day_pct": best["adjusted_percentage"],
+        "total_gap_minutes": total_gap_minutes,
+        "days_with_gaps": sum(1 for d in days if d["gap_minutes"] > 0),
     }
 
 
 @router.get("/weekly")
 def weekly_analytics(date: date = Query(...), db: Session = Depends(get_db)):
-    """Return per-day habit scores for the Mon–Sun week containing the given date."""
+    """Return per-day habit/task scores for the Mon–Sun week containing `date`.
+
+    Response shape:
+      start_date, end_date  — ISO strings for the week boundaries
+      habits                — list of {id, name, max}
+      todos                 — deduplicated list of todos worked on this week
+      days                  — 7 day objects (see _build_days)
+      summary               — weekly KPIs (see _period_summary)
+    """
     monday = date - timedelta(days=date.weekday())
     all_dates = [monday + timedelta(days=i) for i in range(7)]
 
@@ -157,7 +278,11 @@ def weekly_analytics(date: date = Query(...), db: Session = Depends(get_db)):
 
 @router.get("/monthly")
 def monthly_analytics(year: int, month: int, db: Session = Depends(get_db)):
-    """Return per-day habit scores for every day in the given month."""
+    """Return per-day habit/task scores for every day in the given month.
+
+    Response shape mirrors /weekly with `days` covering all days in the month.
+    Raises HTTP 422 if month is outside 1–12.
+    """
     if not 1 <= month <= 12:
         from fastapi import HTTPException
         raise HTTPException(status_code=422, detail="month must be between 1 and 12")

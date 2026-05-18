@@ -48,7 +48,7 @@ def calculate_earned_points(habit, entry, rules: list) -> float:
     """Return earned points (float) for a single daily entry."""
     scoring_type = habit.scoring_type
 
-    if scoring_type == "boolean":
+    if scoring_type in ("boolean", "no_rule"):
         has_data = (
             entry.start_time is not None
             or entry.duration_minutes is not None

@@ -1,3 +1,14 @@
+/**
+ * api/habits.js — Habit CRUD and scoring-rule endpoints.
+ *
+ * getHabits(activeOnly)        — GET  /habits
+ * createHabit(data)            — POST /habits
+ * updateHabit(id, data)        — PUT  /habits/:id
+ * deleteHabit(id)              — DELETE /habits/:id
+ * reorderHabits(orderedIds)    — PUT  /habits/reorder
+ * getScoringRules(habitId)     — GET  /habits/:id/rules
+ * setScoringRules(habitId, []) — PUT  /habits/:id/rules  (full replace)
+ */
 import { api } from './base'
 
 export const getHabits = (activeOnly = true) =>

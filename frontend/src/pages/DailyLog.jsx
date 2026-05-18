@@ -27,6 +27,79 @@ function minutesToTime(mins) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
+// ─── gap detection ───────────────────────────────────────────────────────────
+// Finds unutilized time: gaps BETWEEN consecutive logged activities.
+// Trailing time after the last activity is NOT counted.
+// Rules for inclusion on the timeline:
+//   • Any activity with start + end OR start + duration_minutes > 0 (has a real span)
+//   • time_of_day / time_of_day_linear entries with only start_time (explicit clock anchor)
+// Excluded: boolean / no_rule "done" markers — their start_time is just the click timestamp.
+function computeGaps(entries, taskEntries, habits) {
+  const intervals = []
+
+  const habitMap = Object.fromEntries(habits.map(h => [h.id, h]))
+
+  Object.values(entries).forEach(e => {
+    if (!e.start_time) return
+    const scoringType = habitMap[e.habit_id]?.scoring_type ?? ''
+    if (scoringType === 'boolean' || scoringType === 'no_rule') return
+    const start = timeToMinutes(e.start_time)
+    let end = null
+    if (e.end_time) end = timeToMinutes(e.end_time)
+    else if (e.duration_minutes > 0) end = start + e.duration_minutes
+
+    if (end !== null) {
+      // Has a real span — always include
+      intervals.push({ start, end: Math.max(start, end) })
+    } else if (scoringType === 'time_of_day' || scoringType === 'time_of_day_linear') {
+      // Explicit clock anchor (point event)
+      intervals.push({ start, end: start })
+    }
+    // boolean / no_rule / incomplete duration → skip
+  })
+
+  taskEntries.forEach(te => {
+    if (!te.start_time) return
+    const scoringType = te.todo_scoring_type ?? ''
+    if (scoringType === 'boolean' || scoringType === 'no_rule') return
+    const start = timeToMinutes(te.start_time)
+    let end = null
+    if (te.end_time) end = timeToMinutes(te.end_time)
+    else if (te.duration_minutes > 0) end = start + te.duration_minutes
+
+    if (end !== null) {
+      intervals.push({ start, end: Math.max(start, end) })
+    } else if (scoringType === 'time_of_day' || scoringType === 'time_of_day_linear') {
+      intervals.push({ start, end: start })
+    }
+  })
+
+  if (intervals.length < 2) return []
+
+  intervals.sort((a, b) => a.start - b.start)
+
+  // Merge overlapping / touching intervals
+  const merged = [{ ...intervals[0] }]
+  for (let i = 1; i < intervals.length; i++) {
+    const last = merged[merged.length - 1]
+    if (intervals[i].start <= last.end) {
+      last.end = Math.max(last.end, intervals[i].end)
+    } else {
+      merged.push({ ...intervals[i] })
+    }
+  }
+
+  const gaps = []
+  for (let i = 1; i < merged.length; i++) {
+    const gapStart = merged[i - 1].end
+    const gapEnd   = merged[i].start
+    if (gapEnd > gapStart) {
+      gaps.push({ start: minutesToTime(gapStart), end: minutesToTime(gapEnd), minutes: gapEnd - gapStart })
+    }
+  }
+  return gaps
+}
+
 // ─── component ──────────────────────────────────────────────────────────────
 
 export default function DailyLog() {
@@ -206,6 +279,11 @@ export default function DailyLog() {
     return (a.todo_display_order ?? 0) - (b.todo_display_order ?? 0)
   })
 
+  const gaps            = computeGaps(entries, taskEntries, habits)
+  const totalGapMinutes = gaps.reduce((sum, g) => sum + g.minutes, 0)
+  const adjustedEarned  = summary ? Math.max(0, summary.total_earned - totalGapMinutes) : 0
+  const adjustedPct     = summary?.total_max > 0 ? (adjustedEarned / summary.total_max) * 100 : 0
+
   return (
     <div className="space-y-6">
 
@@ -230,11 +308,18 @@ export default function DailyLog() {
       {/* Score summary */}
       {summary && (
         <div className="bg-gray-900 rounded-xl p-4 lg:p-6 flex items-center justify-between">
-          <span className="text-sm lg:text-base text-gray-300">Total Score</span>
+          <div>
+            <span className="text-sm lg:text-base text-gray-300">Total Score</span>
+            {totalGapMinutes > 0 && (
+              <div className="text-xs text-red-400 mt-1">
+                {summary.total_earned.toFixed(1)} earned − {totalGapMinutes} min unutilized
+              </div>
+            )}
+          </div>
           <div className="text-right">
-            <span className="text-2xl lg:text-4xl font-bold text-white tabular-nums">{summary.total_earned.toFixed(1)}</span>
+            <span className="text-2xl lg:text-4xl font-bold text-white tabular-nums">{adjustedEarned.toFixed(1)}</span>
             <span className="text-gray-500 text-sm lg:text-base"> / {summary.total_max}</span>
-            <div className="text-xs lg:text-sm text-gray-400 mt-0.5">{summary.percentage.toFixed(0)}% of max</div>
+            <div className="text-xs lg:text-sm text-gray-400 mt-0.5">{adjustedPct.toFixed(0)}% of max</div>
           </div>
         </div>
       )}
@@ -391,6 +476,33 @@ export default function DailyLog() {
           )}
         </div>
       </div>
+
+      {/* Unutilized Time */}
+      {gaps.length > 0 && (
+        <div>
+          <h3 className="text-xs sm:text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">
+            Unutilized Time
+          </h3>
+          <div className="bg-gray-900 rounded-xl overflow-hidden">
+            {gaps.map((gap, i) => (
+              <div key={i} className="px-4 py-3 border-b border-gray-800/50 last:border-0 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-white tabular-nums">{gap.start} → {gap.end}</span>
+                  <span className="text-xs text-gray-500">{gap.minutes} min</span>
+                </div>
+                <span className="text-sm font-medium text-red-400 tabular-nums">−{gap.minutes} pts</span>
+              </div>
+            ))}
+            {gaps.length > 1 && (
+              <div className="px-4 py-3 flex items-center justify-between bg-gray-800/40 border-t border-gray-800">
+                <span className="text-xs text-gray-400 uppercase tracking-wide">Total deduction</span>
+                <span className="text-sm font-semibold text-red-400 tabular-nums">−{totalGapMinutes} pts</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }

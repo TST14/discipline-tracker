@@ -1,3 +1,17 @@
+/**
+ * api/todos.js — Todo CRUD, scoring-rule, and daily task-entry endpoints.
+ *
+ * getTodos(status?)            — GET  /todos  (optionally filter by status)
+ * createTodo(data)             — POST /todos
+ * updateTodo(id, data)         — PUT  /todos/:id  (partial update)
+ * deleteTodo(id)               — DELETE /todos/:id
+ * reorderTodos(orderedIds)     — PUT  /todos/reorder
+ * getTodoScoringRules(todoId)  — GET  /todos/:id/rules
+ * setTodoScoringRules(id, [])  — PUT  /todos/:id/rules  (full replace)
+ * getTaskEntries(date)         — GET  /todos/entries?date=
+ * upsertTaskEntry(data)        — POST /todos/entries
+ * deleteTaskEntry(id)          — DELETE /todos/entries/:id
+ */
 import { api } from './base'
 
 export const getTodos = (status) =>

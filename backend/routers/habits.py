@@ -1,3 +1,15 @@
+"""routers/habits.py — CRUD endpoints for Habits and their ScoringRules.
+
+Endpoints
+---------
+GET    /habits                — list all active (or all) habits
+POST   /habits                — create a new habit
+PUT    /habits/reorder        — bulk update display_order
+PUT    /habits/{id}           — update habit; deletes rules if scoring_type changed
+DELETE /habits/{id}           — hard delete (cascades entries + rules)
+GET    /habits/{id}/rules     — list scoring rules for a habit
+PUT    /habits/{id}/rules     — replace all rules, then recompute historic entries
+"""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
@@ -24,6 +36,9 @@ def _recompute_habit_entries(habit: Habit, db: Session) -> None:
 
 @router.get("", response_model=list[HabitOut])
 def list_habits(active_only: bool = True, db: Session = Depends(get_db)):
+    """Return habits ordered by display_order.
+    Pass active_only=false to include archived habits.
+    """
     q = db.query(Habit).order_by(Habit.display_order)
     if active_only:
         q = q.filter(Habit.is_active == True)
@@ -32,6 +47,7 @@ def list_habits(active_only: bool = True, db: Session = Depends(get_db)):
 
 @router.post("", response_model=HabitOut, status_code=201)
 def create_habit(payload: HabitCreate, db: Session = Depends(get_db)):
+    """Create a new habit and return it."""
     habit = Habit(**payload.model_dump())
     db.add(habit)
     db.commit()
@@ -41,6 +57,7 @@ def create_habit(payload: HabitCreate, db: Session = Depends(get_db)):
 
 @router.put("/reorder")
 def reorder_habits(payload: ReorderRequest, db: Session = Depends(get_db)):
+    """Bulk-update display_order from an ordered list of habit IDs."""
     for order, habit_id in enumerate(payload.ordered_ids):
         db.query(Habit).filter(Habit.id == habit_id).update({"display_order": order})
     db.commit()
@@ -49,15 +66,25 @@ def reorder_habits(payload: ReorderRequest, db: Session = Depends(get_db)):
 
 @router.put("/{habit_id}", response_model=HabitOut)
 def update_habit(habit_id: int, payload: HabitUpdate, db: Session = Depends(get_db)):
+    """Update a habit's fields.
+
+    Side-effects:
+      - If scoring_type changed: all existing ScoringRules are deleted.
+      - If scoring_type or max_points changed: all DailyEntries are
+        recomputed via the scoring engine.
+    """
     habit = db.get(Habit, habit_id)
     if not habit:
         raise HTTPException(status_code=404, detail="Habit not found")
+    old_scoring_type = habit.scoring_type
     scoring_changed = (
         payload.max_points != habit.max_points
         or payload.scoring_type != habit.scoring_type
     )
     for k, v in payload.model_dump().items():
         setattr(habit, k, v)
+    if payload.scoring_type != old_scoring_type:
+        db.query(ScoringRule).filter(ScoringRule.habit_id == habit_id).delete()
     db.commit()
     db.refresh(habit)
     if scoring_changed:
@@ -67,6 +94,7 @@ def update_habit(habit_id: int, payload: HabitUpdate, db: Session = Depends(get_
 
 @router.delete("/{habit_id}", status_code=204)
 def delete_habit(habit_id: int, db: Session = Depends(get_db)):
+    """Hard-delete a habit and all its entries/rules (cascade)."""
     habit = db.get(Habit, habit_id)
     if not habit:
         raise HTTPException(status_code=404, detail="Habit not found")
@@ -78,6 +106,7 @@ def delete_habit(habit_id: int, db: Session = Depends(get_db)):
 
 @router.get("/{habit_id}/rules", response_model=list[ScoringRuleOut])
 def get_rules(habit_id: int, db: Session = Depends(get_db)):
+    """Return all scoring rules for a habit, sorted by rule_order."""
     return (
         db.query(ScoringRule)
         .filter(ScoringRule.habit_id == habit_id)
@@ -88,6 +117,9 @@ def get_rules(habit_id: int, db: Session = Depends(get_db)):
 
 @router.put("/{habit_id}/rules", response_model=list[ScoringRuleOut])
 def set_rules(habit_id: int, rules: list[ScoringRuleCreate], db: Session = Depends(get_db)):
+    """Replace all scoring rules for a habit (full replace, not patch),
+    then recompute earned_points for every existing DailyEntry.
+    """
     habit = db.get(Habit, habit_id)
     if not habit:
         raise HTTPException(status_code=404, detail="Habit not found")

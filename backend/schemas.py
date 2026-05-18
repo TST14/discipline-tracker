@@ -1,9 +1,20 @@
+"""schemas.py — Pydantic request/response models for the entire API.
+
+Naming convention:
+  *Base    — shared fields used by both Create and Out schemas
+  *Create  — payload accepted on POST/PUT (input validation)
+  *Update  — partial payload accepted on PUT (all fields optional)
+  *Out     — response shape returned to the client
+
+ScoringType is a Literal shared by both Habit and Todo schemas so the
+allowed values are enforced in one place.
+"""
 from datetime import date, datetime, time
 from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 # ── Shared constrained types ──────────────────────────────────────────────────
-ScoringType = Literal["boolean", "duration", "duration_linear", "time_of_day", "time_of_day_linear"]
+ScoringType = Literal["boolean", "no_rule", "duration", "duration_linear", "time_of_day", "time_of_day_linear"]
 RuleCondition = Literal["lte", "gte", "lt", "gt", "eq", "bp"]
 TodoStatus = Literal["pending", "done", "skipped"]
 
