@@ -94,10 +94,19 @@ def update_habit(habit_id: int, payload: HabitUpdate, db: Session = Depends(get_
 
 @router.delete("/{habit_id}", status_code=204)
 def delete_habit(habit_id: int, db: Session = Depends(get_db)):
-    """Hard-delete a habit and all its entries/rules (cascade)."""
+    """Hard-delete a habit and all its entries/rules (cascade).
+
+    Requires the habit to be inactive first (is_active=False).
+    This enforces the intentional two-step flow: deactivate → delete.
+    """
     habit = db.get(Habit, habit_id)
     if not habit:
         raise HTTPException(status_code=404, detail="Habit not found")
+    if habit.is_active:
+        raise HTTPException(
+            status_code=409,
+            detail="Habit must be deactivated before it can be deleted.",
+        )
     db.delete(habit)
     db.commit()
 
