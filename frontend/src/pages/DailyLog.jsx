@@ -33,7 +33,8 @@ function minutesToTime(mins) {
 // Rules for inclusion on the timeline:
 //   • Any activity with start + end OR start + duration_minutes > 0 (has a real span)
 //   • time_of_day / time_of_day_linear entries with only start_time (explicit clock anchor)
-// Excluded: boolean / no_rule "done" markers — their start_time is just the click timestamp.
+// Excluded: boolean "done" markers — their start_time is just the click timestamp.
+// no_rule entries ARE included when they have a real end_time or duration.
 function computeGaps(entries, taskEntries, habits) {
   const intervals = []
 
@@ -42,7 +43,7 @@ function computeGaps(entries, taskEntries, habits) {
   Object.values(entries).forEach(e => {
     if (!e.start_time) return
     const scoringType = habitMap[e.habit_id]?.scoring_type ?? ''
-    if (scoringType === 'boolean' || scoringType === 'no_rule') return
+    if (scoringType === 'boolean') return
     const start = timeToMinutes(e.start_time)
     let end = null
     if (e.end_time) end = timeToMinutes(e.end_time)
@@ -55,13 +56,13 @@ function computeGaps(entries, taskEntries, habits) {
       // Explicit clock anchor (point event)
       intervals.push({ start, end: start })
     }
-    // boolean / no_rule / incomplete duration → skip
+    // boolean / incomplete duration → skip
   })
 
   taskEntries.forEach(te => {
     if (!te.start_time) return
     const scoringType = te.todo_scoring_type ?? ''
-    if (scoringType === 'boolean' || scoringType === 'no_rule') return
+    if (scoringType === 'boolean') return
     const start = timeToMinutes(te.start_time)
     let end = null
     if (te.end_time) end = timeToMinutes(te.end_time)
@@ -72,6 +73,7 @@ function computeGaps(entries, taskEntries, habits) {
     } else if (scoringType === 'time_of_day' || scoringType === 'time_of_day_linear') {
       intervals.push({ start, end: start })
     }
+    // boolean / incomplete no_rule (no end/duration yet) → skip
   })
 
   if (intervals.length < 2) return []
@@ -384,7 +386,7 @@ export default function DailyLog() {
               {sortedTaskEntries.map(te => {
                 const scoringType = te.todo_scoring_type || 'boolean'
                 const isTimeOnly  = scoringType === 'time_of_day' || scoringType === 'time_of_day_linear'
-                const isDuration  = scoringType === 'duration'    || scoringType === 'duration_linear'
+                const isDuration  = scoringType === 'duration'    || scoringType === 'duration_linear' || scoringType === 'no_rule'
                 const isBoolean   = !isTimeOnly && !isDuration
                 const isDone      = te.start_time != null || te.duration_minutes != null
                 const INPUT_CLS   = 'bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500'

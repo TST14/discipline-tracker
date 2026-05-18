@@ -236,9 +236,9 @@ def upsert_task_entry(payload: TaskEntryUpsert, db: Session = Depends(get_db)):
     end = _parse_time(payload.end_time)
     dur = payload.duration_minutes
 
-    # Boolean / no_rule tasks only need start_time as a marker — clear any stale
+    # Boolean tasks only need start_time as a marker — clear any stale
     # duration data that may remain from a previous scoring type.
-    if todo.scoring_type in ('boolean', 'no_rule'):
+    if todo.scoring_type == 'boolean':
         end = None
         dur = None
     elif start and end and dur is None:
