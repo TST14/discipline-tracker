@@ -14,11 +14,26 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+// Attach stored JWT to every request.
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('dt_token')
+  if (token) {
+    config.headers['Authorization'] = `Bearer ${token}`
+  }
+  return config
+})
+
 // Unwrap FastAPI validation/error messages from the response body so callers
 // always get a plain Error with a human-readable message string.
+// Also clear the token and reload on 401 so the login screen appears.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('dt_token')
+      window.location.reload()
+      return new Promise(() => {}) // suspend the chain while reloading
+    }
     const detail = error.response?.data?.detail
     let message
     if (Array.isArray(detail)) {

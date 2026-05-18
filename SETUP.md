@@ -99,11 +99,22 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-The default `.env` already matches the Docker container above — no edits needed:
+The default `.env` matches the Docker container. You still need to set the two auth variables:
 ```
 DATABASE_URL=postgresql://tracker:tracker123@localhost:5432/discipline_tracker
 DEBUG=true
 ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
+JWT_SECRET=<random string>
+AUTH_PASSWORD_HASH=<bcrypt hash of your password>
+```
+
+Generate the values:
+```bash
+# bcrypt hash of your chosen password:
+python -c "import bcrypt; print(bcrypt.hashpw(b'YOUR_PASSWORD', bcrypt.gensalt()).decode())"
+
+# random JWT secret:
+python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
 **Initialize tables and run migrations:**
@@ -256,6 +267,8 @@ cd frontend && npm run dev
    | `DATABASE_URL` | *(your Neon URI from Step 1)* |
    | `DEBUG` | `false` |
    | `ALLOWED_ORIGINS` | `https://your-app.vercel.app` *(update after Step 3)* |
+   | `JWT_SECRET` | *(output of `python -c "import secrets; print(secrets.token_hex(32))"`)* |
+   | `AUTH_PASSWORD_HASH` | *(output of `python -c "import bcrypt; print(bcrypt.hashpw(b'YOUR_PASSWORD', bcrypt.gensalt()).decode())"`)* |
 
 5. Click **Deploy**. First build takes 2–3 minutes.
 6. Copy your service URL — e.g. `https://discipline-tracker-api.onrender.com`
@@ -300,9 +313,10 @@ Verify: `https://discipline-tracker-api.onrender.com/health` → `{"status":"ok"
 
 ### Step 5 — Verify end-to-end
 
-1. Open your Vercel URL
-2. Go to **Configure** → add a habit → it should save without errors
-3. Go to **Today** → log an entry → score should update
+1. Open your Vercel URL — you should see the **password screen**
+2. Enter your password → you should be taken to the main app
+3. Go to **Configure** → add a habit → it should save without errors
+4. Go to **Today** → log an entry → score should update
 
 If you see a CORS error: double-check `ALLOWED_ORIGINS` on Render matches the Vercel URL exactly.
 
@@ -326,7 +340,11 @@ npm install
 
 **Backend can’t find `.env`**  
 The `.env` file must be in `backend/`, not the repo root. Copy from `.env.example`.
+**Login returns 401 (locally)**  
+`AUTH_PASSWORD_HASH` or `JWT_SECRET` is not being read. Make sure `backend/.env` has both values set and that you're running uvicorn from inside the `backend/` directory so `load_dotenv()` finds the file.
 
+**Login returns 401 (on Render)**  
+Check that `AUTH_PASSWORD_HASH` and `JWT_SECRET` are set in Render's **Environment** tab. Render injects them as real env vars — no `.env` file needed on the server.
 **PostgreSQL connection refused (local)**
 ```bash
 docker start discipline-pg

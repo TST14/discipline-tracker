@@ -1,4 +1,7 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()  # must run before any module that calls os.getenv() at import time
+
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -6,6 +9,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from database import engine, Base, get_db
 from routers import habits, entries, todos, analytics
+from routers import auth as auth_router
+from dependencies import verify_token
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 # Set DEBUG=true in .env for Swagger UI. Always disabled in production.
@@ -42,10 +47,13 @@ def startup_event():
         print(f"Warning: Could not create tables on startup: {e}")
 
 
-app.include_router(habits.router)
-app.include_router(entries.router)
-app.include_router(todos.router)
-app.include_router(analytics.router)
+app.include_router(auth_router.router)
+
+_protected = [Depends(verify_token)]
+app.include_router(habits.router, dependencies=_protected)
+app.include_router(entries.router, dependencies=_protected)
+app.include_router(todos.router, dependencies=_protected)
+app.include_router(analytics.router, dependencies=_protected)
 
 
 @app.get("/health")

@@ -63,6 +63,8 @@ The frontend and backend are **completely separate processes**. They communicate
 | Backend    | FastAPI                | 0.111.x  | Async-ready, auto OpenAPI docs, fast            |
 | Backend    | SQLAlchemy             | 2.x      | ORM + raw SQL when needed, DB-agnostic          |
 | Backend    | psycopg2-binary        | latest   | PostgreSQL driver                               |
+| Backend    | python-jose            | 3.3.x    | JWT creation and verification (HS256)           |
+| Backend    | bcrypt                 | 4.x      | Password hashing                                |
 | Backend    | pydantic-settings      | 2.x      | `.env` loading with type safety                 |
 | Database   | PostgreSQL             | 16       | ACID, strong constraints, `ON CONFLICT` upsert  |
 | Dev DB     | Docker                 | —        | Throwaway local Postgres, no local install      |
@@ -77,12 +79,13 @@ discipline-tracker/
 ├── backend/                        ← Python FastAPI application
 │   ├── main.py                     ← App entry point, CORS, router registration
 │   ├── database.py                 ← SQLAlchemy engine + session factory
+│   ├── dependencies.py             ← JWT verification dependency (guards all routes)
 │   ├── models.py                   ← All ORM table definitions
 │   ├── schemas.py                  ← Pydantic request / response models
-│   ├── scoring.py                  ← (legacy location, kept for reference)
 │   ├── services/
 │   │   └── scoring.py              ← Scoring engine (business logic lives here)
 │   ├── routers/
+│   │   ├── auth.py                 ← POST /auth/login — verifies password, returns JWT
 │   │   ├── habits.py               ← GET/POST/PUT/DELETE /habits
 │   │   ├── entries.py              ← GET/POST /entries  (daily habit log)
 │   │   ├── todos.py                ← GET/POST/PUT/DELETE /todos + task entries
@@ -97,6 +100,7 @@ discipline-tracker/
 │       ├── App.jsx                 ← Tab shell (Today / Progress / Tasks / Configure)
 │       │
 │       ├── pages/                  ← One file per full-page view (matches a tab)
+│       │   ├── Login.jsx           ← Password screen (shown when no valid token)
 │       │   ├── DailyLog.jsx        ← "Today" tab — daily habit + task log
 │       │   ├── Analytics.jsx       ← "Progress" tab — weekly & monthly views
 │       │   ├── TaskList.jsx        ← "Tasks" tab — to-do management
@@ -107,7 +111,8 @@ discipline-tracker/
 │       │   └── HabitRow.jsx        ← Single habit row, renders per scoring_type
 │       │
 │       └── api/                    ← All HTTP calls, split by domain
-│           ├── base.js             ← Shared axios instance (reads VITE_API_URL)
+│           ├── base.js             ← Shared axios instance (reads VITE_API_URL, attaches JWT)
+│           ├── auth.js             ← login() — POST /auth/login
 │           ├── habits.js           ← Habit + scoring rule API calls
 │           ├── entries.js          ← Daily entry API calls
 │           ├── todos.js            ← Todo + task entry API calls
@@ -135,17 +140,19 @@ discipline-tracker/
 
 ```
 main.py
+  ├── Calls load_dotenv() — loads .env before any module reads os.getenv()
   ├── Creates FastAPI app
   ├── Configures CORS (allows localhost:3000 and localhost:5173)
   ├── Calls Base.metadata.create_all() — auto-creates missing tables on startup
   └── Registers routers:
-        app.include_router(habits.router)    →  /habits
-        app.include_router(entries.router)   →  /entries
-        app.include_router(todos.router)     →  /todos
-        app.include_router(analytics.router) →  /analytics
+        app.include_router(auth_router.router)               →  /auth  (public)
+        app.include_router(habits.router,   deps=[verify_token])  →  /habits
+        app.include_router(entries.router,  deps=[verify_token])  →  /entries
+        app.include_router(todos.router,    deps=[verify_token])  →  /todos
+        app.include_router(analytics.router,deps=[verify_token])  →  /analytics
 ```
 
-FastAPI auto-generates interactive API docs at `http://localhost:8000/docs` — useful for testing endpoints without the frontend.
+`verify_token` (in `dependencies.py`) validates the Bearer JWT on every request to the protected routers. The `/auth/login` endpoint and `/health` are intentionally left public.
 
 ### Database Layer
 
@@ -177,6 +184,13 @@ All database tables are defined in **`models.py`** using SQLAlchemy ORM:
 ### Routers (API endpoints)
 
 Each router file owns one resource domain:
+
+#### `routers/auth.py` — `/auth`
+| Method | Path           | Auth required | What it does                                 |
+|--------|----------------|---------------|----------------------------------------------|
+| POST   | `/auth/login`  | No            | Verify password, return 30-day JWT           |
+
+The password is never stored in the database. It is compared against the `AUTH_PASSWORD_HASH` environment variable using `bcrypt.checkpw`. On success a JWT signed with `JWT_SECRET` is returned. The frontend stores this in `localStorage`.
 
 #### `routers/habits.py` — `/habits`
 | Method | Path                    | What it does                          |
@@ -251,16 +265,18 @@ Entry saved (start_time / end_time / duration_minutes)
 
 `main.jsx` mounts the React app into `<div id="root">`.
 
-`App.jsx` is the shell — it renders a sticky tab bar and swaps the active page:
+`App.jsx` is the shell. It checks `localStorage` for a valid JWT on mount. If none is found, it renders `<Login />` instead of the main app. Once authenticated it renders the tab bar:
 
 ```
 App
-├── Tab bar: [Today] [Progress] [Tasks] [Configure]
-└── Active page:
-      Today     → <DailyLog />
-      Progress  → <Analytics />
-      Tasks     → <TaskList />
-      Configure → <HabitSettings />
+├── No token → <Login onAuthenticated={…} />
+└── Token present:
+      ├── Tab bar: [Today] [Progress] [Tasks] [Configure]  +  Sign out
+      └── Active page:
+            Today     → <DailyLog />
+            Progress  → <Analytics />
+            Tasks     → <TaskList />
+            Configure → <HabitSettings />
 ```
 
 No routing library is used (React Router etc.) — the app is small enough that simple `activeTab` state is sufficient.
@@ -269,6 +285,7 @@ No routing library is used (React Router etc.) — the app is small enough that 
 
 | File                  | Tab       | Responsibility                                                |
 |-----------------------|-----------|---------------------------------------------------------------|
+| `Login.jsx`           | —         | Password form; stores JWT in localStorage on success          |
 | `DailyLog.jsx`        | Today     | Load habits + entries for selected date, auto-save on change  |
 | `Analytics.jsx`       | Progress  | Weekly heatmap grid (habits + tasks) + monthly calendar with score % and per-habit/task breakdowns |
 | `TaskList.jsx`        | Tasks     | CRUD for to-do items, filter by status                       |
@@ -290,7 +307,9 @@ Each page is self-contained: it owns its own state and fetches its own data.
 All HTTP calls live in `api/`. Nothing else in the app talks to `fetch` or `axios` directly.
 
 ```
-api/base.js          ← axios instance, reads VITE_API_URL env var
+api/base.js          ← axios instance; attaches Bearer token on every request;
+                       clears token + reloads on 401
+api/auth.js          ← login(password) → POST /auth/login
 api/habits.js        ← getHabits, createHabit, updateHabit, deleteHabit, ...
 api/entries.js       ← getEntries, upsertEntry, getDailySummary
 api/todos.js         ← getTodos, createTodo, updateTodo, deleteTodo, ...
@@ -430,7 +449,23 @@ Values outside the defined range clamp to the nearest breakpoint.
 
 ```
 DATABASE_URL=postgresql://user:password@localhost:5432/discipline_tracker
+JWT_SECRET=<random 32-byte hex string>
+AUTH_PASSWORD_HASH=<bcrypt hash of your password>
 ```
+
+`JWT_SECRET` signs the JWT. `AUTH_PASSWORD_HASH` is the bcrypt hash of the login password — never stored in the database, only in the environment.
+
+Generate the values:
+```bash
+# password hash:
+python -c "import bcrypt; print(bcrypt.hashpw(b'YOUR_PASSWORD', bcrypt.gensalt()).decode())"
+# JWT secret:
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+`load_dotenv()` is called at the top of `main.py` before any router is imported, ensuring all `os.getenv()` calls in `auth.py` and `dependencies.py` pick up the values.
+
+> **On Render:** set `JWT_SECRET` and `AUTH_PASSWORD_HASH` in the Render **Environment** tab. Render injects them as real process env vars — no `.env` file needed.
 
 ### Frontend `.env`
 
