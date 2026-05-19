@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from database import engine, Base, get_db
 from routers import habits, entries, todos, analytics
 from routers import auth as auth_router
+from routers import screen_time as screen_time_router
 from dependencies import verify_token
 
 # ── Configuration ─────────────────────────────────────────────────────────────
@@ -54,6 +55,7 @@ app.include_router(habits.router, dependencies=_protected)
 app.include_router(entries.router, dependencies=_protected)
 app.include_router(todos.router, dependencies=_protected)
 app.include_router(analytics.router, dependencies=_protected)
+app.include_router(screen_time_router.router, dependencies=_protected)
 
 
 @app.get("/health")

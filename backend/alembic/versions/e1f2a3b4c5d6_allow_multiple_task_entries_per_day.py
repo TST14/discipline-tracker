@@ -11,6 +11,7 @@ Create Date: 2026-05-18 00:00:00.000000
 from typing import Sequence, Union
 
 from alembic import op
+from sqlalchemy import text
 
 
 # revision identifiers, used by Alembic.
@@ -21,7 +22,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.drop_constraint('uq_task_entry_date_todo', 'daily_task_entries', type_='unique')
+    conn = op.get_bind()
+    result = conn.execute(text(
+        "SELECT 1 FROM pg_constraint WHERE conname = 'uq_task_entry_date_todo'"
+    )).fetchone()
+    if result:
+        op.drop_constraint('uq_task_entry_date_todo', 'daily_task_entries', type_='unique')
 
 
 def downgrade() -> None:

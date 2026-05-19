@@ -9,6 +9,7 @@ import dayjs from 'dayjs'
 import { getEntries, upsertEntry, deleteEntry, getDailySummary } from '../api/entries'
 import { getHabits } from '../api/habits'
 import { getTodos, getTaskEntries, upsertTaskEntry, deleteTaskEntry } from '../api/todos'
+import { getScreenTime, addScreenTime, updateScreenTime, deleteScreenTime, screenTimePenaltyPts } from '../api/screenTime'
 import HabitRow from '../components/HabitRow'
 import ScoreBadge from '../components/ScoreBadge'
 
@@ -103,7 +104,7 @@ function computeGaps(entries, taskEntries, habits) {
 }
 // Returns the latest end-time (HH:mm) across all logged habit + task entries.
 // Used by quick-register to pre-fill a new entry's start_time.
-function getLatestEndTime(entries, taskEntries) {
+function getLatestEndTime(entries, taskEntries, screenEntries = []) {
   let maxMins = null
 
   Object.values(entries).forEach(e => {
@@ -122,12 +123,16 @@ function getLatestEndTime(entries, taskEntries) {
     if (endMins !== null && (maxMins === null || endMins > maxMins)) maxMins = endMins
   })
 
+  screenEntries.forEach(se => {
+    const endMins = timeToMinutes(se.end_time.slice(0, 5))
+    if (endMins !== null && (maxMins === null || endMins > maxMins)) maxMins = endMins
+  })
+
   return maxMins !== null ? minutesToTime(maxMins) : null
 }
 // ─── component ──────────────────────────────────────────────────────────────
 
-export default function DailyLog() {
-  const [date, setDate] = useState(dayjs().format('YYYY-MM-DD'))
+export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate }) {
   const [habits, setHabits] = useState([])
   const [entries, setEntries] = useState({})        // { habitId: entryObj }
   const [taskEntries, setTaskEntries] = useState([]) // DailyTaskEntry[]
@@ -137,16 +142,21 @@ export default function DailyLog() {
   const [saving, setSaving] = useState({})
   const [savingTask, setSavingTask] = useState({})
   const [error, setError] = useState(null)
+  const [screenEntries, setScreenEntries] = useState([])
+  const [screenForm, setScreenForm] = useState({ start_time: '', end_time: '', note: '' })
+  const [screenSaving, setScreenSaving] = useState(false)
+  const [editingScreen, setEditingScreen] = useState({ id: null, start_time: '', end_time: '', note: '' })
 
   const load = useCallback(async () => {
     try {
       setError(null)
-      const [h, e, s, te, pt] = await Promise.all([
+      const [h, e, s, te, pt, se] = await Promise.all([
         getHabits(),
         getEntries(date),
         getDailySummary(date),
         getTaskEntries(date),
         getTodos('pending'),
+        getScreenTime(date),
       ])
       setHabits(h)
       const map = {}
@@ -155,6 +165,7 @@ export default function DailyLog() {
       setSummary(s)
       setTaskEntries(te)
       setPendingTodos(pt)  // show all pending todos — tasks can have multiple entries per day
+      setScreenEntries(se)
     } catch {
       setError('Could not connect to backend. Make sure the API server is running.')
     }
@@ -280,10 +291,80 @@ export default function DailyLog() {
     }
   }
 
+  // Shared save logic for screen time (used by auto-save and quick-register).
+  const saveScreenTime = async (start_time, end_time, note) => {
+    setScreenSaving(true)
+    try {
+      const saved = await addScreenTime({ entry_date: date, start_time, end_time, note: note || null })
+      setScreenEntries(prev => [...prev, saved])
+    } catch {
+      setError('Failed to log screen time.')
+    } finally {
+      setScreenSaving(false)
+    }
+  }
+
+  // Auto-save when focus leaves the entire row (lets user fill note before triggering).
+  const handleScreenRowBlur = async (e) => {
+    if (e.currentTarget.contains(e.relatedTarget)) return
+    const { start_time, end_time, note } = screenForm
+    if (start_time && end_time && timeToMinutes(end_time) > timeToMinutes(start_time)) {
+      await saveScreenTime(start_time, end_time, note)
+      setScreenForm({ start_time: '', end_time: '', note: '' })
+    }
+  }
+
+  const handleDeleteScreenTime = async (id) => {
+    try {
+      await deleteScreenTime(id)
+      setScreenEntries(prev => prev.filter(e => e.id !== id))
+    } catch {
+      setError('Failed to delete screen time entry.')
+    }
+  }
+
+  const startEditScreen = (se) => {
+    setEditingScreen({
+      id: se.id,
+      start_time: se.start_time.slice(0, 5),
+      end_time: se.end_time.slice(0, 5),
+      note: se.note || '',
+    })
+  }
+
+  const cancelEditScreen = () => setEditingScreen({ id: null, start_time: '', end_time: '', note: '' })
+
+  const handleEditScreenBlur = async (e) => {
+    if (e.currentTarget.contains(e.relatedTarget)) return
+    const { id, start_time, end_time, note } = editingScreen
+    if (!id) return
+    if (start_time && end_time && timeToMinutes(end_time) > timeToMinutes(start_time)) {
+      try {
+        const updated = await updateScreenTime(id, { entry_date: date, start_time, end_time, note: note || null })
+        setScreenEntries(prev => prev.map(e => e.id === id ? updated : e))
+        cancelEditScreen()
+      } catch {
+        setError('Failed to update screen time entry.')
+        // keep in edit mode so the user can retry
+      }
+    } else {
+      cancelEditScreen()
+    }
+  }
+
+  // ⚡ Quick-register: start = latest end across habits, tasks AND screen time → end = now.
+  const handleQuickRegisterScreenTime = async () => {
+    const now = dayjs().format('HH:mm')
+    const start = getLatestEndTime(entries, taskEntries, screenEntries) || now
+    if (timeToMinutes(now) <= timeToMinutes(start)) return
+    await saveScreenTime(start, now, screenForm.note)
+    setScreenForm(prev => ({ ...prev, note: '' }))
+  }
+
   // ⚡ Quick-register a habit: start = latest end-time of any entry, end = now.
   // Second session: keeps original start_time, accumulates duration_minutes.
   const handleQuickRegister = async (habitId) => {
-    const latestEnd = getLatestEndTime(entries, taskEntries)
+    const latestEnd = getLatestEndTime(entries, taskEntries, screenEntries)
     const now = dayjs().format('HH:mm')
     const endTime = now
     const sessionStart = latestEnd || now
@@ -312,7 +393,7 @@ export default function DailyLog() {
   // ⚡ Quick-register a task entry: same logic as habits.
   // Second session: keeps original start_time, accumulates duration_minutes.
   const handleQuickRegisterTask = async (taskEntry) => {
-    const latestEnd = getLatestEndTime(entries, taskEntries)
+    const latestEnd = getLatestEndTime(entries, taskEntries, screenEntries)
     const now = dayjs().format('HH:mm')
     const endTime = now
     const sessionStart = latestEnd || now
@@ -364,8 +445,11 @@ export default function DailyLog() {
 
   const gaps            = computeGaps(entries, taskEntries, habits)
   const totalGapMinutes = gaps.reduce((sum, g) => sum + g.minutes, 0)
-  const adjustedEarned  = summary ? Math.max(0, summary.total_earned - totalGapMinutes) : 0
-  const adjustedPct     = summary?.total_max > 0 ? (adjustedEarned / summary.total_max) * 100 : 0
+  const totalScreenMins = screenEntries.reduce((sum, e) => sum + e.minutes, 0)
+  const totalScreenPenalty = screenTimePenaltyPts(totalScreenMins)
+  const rawScore        = summary ? summary.total_earned - totalGapMinutes - totalScreenPenalty : 0
+  const adjustedEarned  = rawScore  // may be negative
+  const adjustedPct     = summary?.total_max > 0 ? Math.max(0, (rawScore / summary.total_max) * 100) : 0
 
   return (
     <div className="space-y-6">
@@ -393,14 +477,19 @@ export default function DailyLog() {
         <div className="bg-gray-900 rounded-xl p-4 lg:p-6 flex items-center justify-between">
           <div>
             <span className="text-sm lg:text-base text-gray-300">Total Score</span>
-            {totalGapMinutes > 0 && (
-              <div className="text-xs text-red-400 mt-1">
-                {summary.total_earned.toFixed(1)} earned − {totalGapMinutes} min unutilized
+            {(totalGapMinutes > 0 || totalScreenPenalty > 0) && (
+              <div className="text-xs text-red-400 mt-1 space-y-0.5">
+                {totalGapMinutes > 0 && (
+                  <div>{summary.total_earned.toFixed(1)} earned − {totalGapMinutes} min unutilized</div>
+                )}
+                {totalScreenPenalty > 0 && (
+                  <div>− {totalScreenPenalty} pts screen time penalty</div>
+                )}
               </div>
             )}
           </div>
           <div className="text-right">
-            <span className="text-2xl lg:text-4xl font-bold text-white tabular-nums">{adjustedEarned.toFixed(1)}</span>
+            <span className={`text-2xl lg:text-4xl font-bold tabular-nums ${adjustedEarned < 0 ? 'text-red-400' : 'text-white'}`}>{adjustedEarned.toFixed(1)}</span>
             <span className="text-gray-500 text-sm lg:text-base"> / {summary.total_max}</span>
             <div className="text-xs lg:text-sm text-gray-400 mt-0.5">{adjustedPct.toFixed(0)}% of max</div>
           </div>
@@ -480,7 +569,7 @@ export default function DailyLog() {
               {sortedTaskEntries.map(te => {
                 const scoringType = te.todo_scoring_type || 'boolean'
                 const isTimeOnly  = scoringType === 'time_of_day' || scoringType === 'time_of_day_linear'
-                const isDuration  = scoringType === 'duration'    || scoringType === 'duration_linear' || scoringType === 'no_rule'
+                const isDuration  = scoringType === 'duration'    || scoringType === 'duration_linear' || scoringType === 'no_rule' || scoringType === 'time_multiplier'
                 const isBoolean   = !isTimeOnly && !isDuration
                 const isDone      = te.start_time != null || te.duration_minutes != null
                 const INPUT_CLS   = 'bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500'
@@ -602,6 +691,93 @@ export default function DailyLog() {
           </div>
         </div>
       )}
+
+      {/* Screen Time */}
+      <div>
+        <h3 className="text-xs sm:text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">Screen Time</h3>
+        <div className="bg-gray-900 rounded-xl overflow-hidden">
+          {screenEntries.length === 0 ? (
+            <div className="px-4 py-4 text-center text-gray-600 text-xs">No screen time logged today</div>
+          ) : (
+            <>
+              {screenEntries.map(se => (
+                editingScreen.id === se.id ? (
+                  /* ── inline edit row ── */
+                  <div key={se.id} onBlur={handleEditScreenBlur}
+                    className="px-4 py-3 border-b border-gray-800/50 last:border-0 flex items-center gap-2 flex-wrap">
+                    <input type="time" value={editingScreen.start_time}
+                      onChange={e => setEditingScreen(prev => ({ ...prev, start_time: e.target.value }))}
+                      className="bg-gray-800 border border-gray-600 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-orange-500 w-[90px]" />
+                    <span className="text-xs text-gray-600">→</span>
+                    <input type="time" value={editingScreen.end_time}
+                      onChange={e => setEditingScreen(prev => ({ ...prev, end_time: e.target.value }))}
+                      className="bg-gray-800 border border-gray-600 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-orange-500 w-[90px]" />
+                    <input type="text" value={editingScreen.note}
+                      onChange={e => setEditingScreen(prev => ({ ...prev, note: e.target.value }))}
+                      placeholder="note (optional)" maxLength={200}
+                      className="bg-gray-800 border border-gray-600 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-orange-500 flex-1 min-w-[80px]" />
+                    <button onClick={cancelEditScreen}
+                      className="text-gray-600 hover:text-gray-300 transition-colors text-sm font-bold flex-shrink-0" title="Cancel">✕</button>
+                  </div>
+                ) : (
+                  /* ── read-only row ── */
+                  <div key={se.id} className="px-4 py-3 border-b border-gray-800/50 last:border-0 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-sm text-white tabular-nums flex-shrink-0">
+                        {se.start_time.slice(0,5)} → {se.end_time.slice(0,5)}
+                      </span>
+                      <span className="text-xs text-gray-500 flex-shrink-0">{se.minutes} min</span>
+                      {se.note && <span className="text-xs text-gray-500 truncate">{se.note}</span>}
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <span className="text-sm font-medium text-red-400 tabular-nums">−{screenTimePenaltyPts(se.minutes)} pts</span>
+                      <button onClick={() => startEditScreen(se)}
+                        className="text-gray-600 hover:text-orange-400 transition-colors text-xs" title="Edit">✎</button>
+                      <button onClick={() => handleDeleteScreenTime(se.id)}
+                        className="text-gray-600 hover:text-red-400 transition-colors text-sm font-bold" title="Remove">✕</button>
+                    </div>
+                  </div>
+                )
+              ))}
+              {screenEntries.length > 0 && (
+                <div className="px-4 py-3 flex items-center justify-between bg-gray-800/40 border-t border-gray-800">
+                  <span className="text-xs text-gray-400 uppercase tracking-wide">Total penalty</span>
+                  <span className="text-sm font-semibold text-red-400 tabular-nums">−{totalScreenPenalty} pts</span>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Manual entry row — saves when focus leaves the row (so note can be filled first) */}
+          <div onBlur={handleScreenRowBlur}
+            className="px-4 py-3 border-t border-gray-800/60 flex items-center gap-2 flex-wrap">
+            <input
+              type="time"
+              value={screenForm.start_time}
+              onChange={e => setScreenForm(prev => ({ ...prev, start_time: e.target.value }))}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500 w-[90px]"
+            />
+            <span className="text-xs text-gray-600">→</span>
+            <input
+              type="time"
+              value={screenForm.end_time}
+              onChange={e => setScreenForm(prev => ({ ...prev, end_time: e.target.value }))}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500 w-[90px]"
+            />
+            <input
+              type="text"
+              value={screenForm.note}
+              onChange={e => setScreenForm(prev => ({ ...prev, note: e.target.value }))}
+              placeholder="note (optional)"
+              maxLength={200}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500 flex-1 min-w-[80px]"
+            />
+            <button onClick={handleQuickRegisterScreenTime}
+              className="text-gray-500 hover:text-yellow-400 transition-colors text-sm flex-shrink-0" title="Quick register: prev end → now">⚡</button>
+            {screenSaving && <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse flex-shrink-0" />}
+          </div>
+        </div>
+      </div>
 
     </div>
   )

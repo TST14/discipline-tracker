@@ -13,6 +13,7 @@ const SCORING_TYPES = [
   { value: 'duration_linear',    label: 'Duration (linear — smooth per minute)' },
   { value: 'time_of_day',        label: 'Time of Day (step rules)' },
   { value: 'time_of_day_linear', label: 'Time of Day (linear — smooth per minute)' },
+  { value: 'time_multiplier',    label: 'Time Multiplier (×mins spent)' },
 ]
 
 const CONDITION_LABELS = {
@@ -30,6 +31,7 @@ const SCORING_TYPE_BADGE = {
   duration_linear:    { label: 'Duration (linear)', color: 'bg-violet-900 text-violet-300' },
   time_of_day:        { label: 'Time (step)',       color: 'bg-amber-900 text-amber-300' },
   time_of_day_linear: { label: 'Time (linear)',     color: 'bg-orange-900 text-orange-300' },
+  time_multiplier:    { label: 'Time ×Mult',        color: 'bg-cyan-900 text-cyan-300' },
 }
 
 const STATUS_CONFIG = {
@@ -60,11 +62,24 @@ function TodoRulesEditor({ todo, onClose }) {
 
   useEffect(() => {
     getTodoScoringRules(todo.id)
-      .then(r => { setRules(r); setLoading(false) })
+      .then(r => {
+        if (r.length === 0 && todo.scoring_type === 'time_multiplier') {
+          setRules([{ id: null, todo_id: todo.id, condition: 'gte', value: '1', percentage: 100, rule_order: 0 }])
+        } else {
+          setRules(r)
+        }
+        setLoading(false)
+      })
       .catch(() => { setError('Failed to load rules'); setLoading(false) })
   }, [todo.id])
 
   const containerRef = useRef(null)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 80)
+    return () => clearTimeout(t)
+  }, [])
   useEffect(() => {
     const handleOutside = (e) => {
       if (containerRef.current && !containerRef.current.contains(e.target)) onClose()
@@ -162,7 +177,7 @@ function TodoRulesEditor({ todo, onClose }) {
         </>
       )}
 
-      {!isLinear && todo.scoring_type !== 'boolean' && todo.scoring_type !== 'no_rule' && (
+      {!isLinear && todo.scoring_type !== 'boolean' && todo.scoring_type !== 'no_rule' && todo.scoring_type !== 'time_multiplier' && (
         <>
           <p className="text-xs text-gray-500">
             Rules are evaluated top-to-bottom. The first matching rule determines the score %.
@@ -207,6 +222,37 @@ function TodoRulesEditor({ todo, onClose }) {
         </>
       )}
 
+      {todo.scoring_type === 'time_multiplier' && (
+        <>
+          <p className="text-xs text-gray-500">
+            Points = multiplier × minutes logged.
+            {' '}Set Max Points {'>'} 0 to cap the score, or 0 for no cap.
+          </p>
+          <div className="flex items-center gap-3 py-1">
+            <span className="text-xs text-gray-400 flex-shrink-0">Multiplier</span>
+            <select
+              value={rules[0]?.percentage ?? 100}
+              onChange={e => {
+                const pct = Number(e.target.value)
+                if (rules.length === 0) {
+                  setRules([{ id: null, todo_id: todo.id, condition: 'gte', value: '1', percentage: pct, rule_order: 0 }])
+                } else {
+                  updateRule(0, 'percentage', pct)
+                }
+              }}
+              className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-gray-500"
+            >
+              <option value={50}>0.5×</option>
+              <option value={100}>1×</option>
+              <option value={150}>1.5×</option>
+              <option value={200}>2×</option>
+              <option value={300}>3×</option>
+            </select>
+            <span className="text-xs text-gray-500">× minutes spent</span>
+          </div>
+        </>
+      )}
+
       {error && <p className="text-xs text-red-400">{error}</p>}
 
       <div className="flex justify-end gap-2">
@@ -235,6 +281,14 @@ function EditTodoForm({ todo, onSave, onCancel }) {
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const formRef = useRef(null)
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 80)
+    return () => clearTimeout(t)
+  }, [])
 
   const submit = async () => {
     if (!form.title.trim()) { setError('Title is required.'); return }
@@ -248,7 +302,7 @@ function EditTodoForm({ todo, onSave, onCancel }) {
   }
 
   return (
-    <div className="bg-gray-800 border border-gray-600 rounded-xl p-4 space-y-3">
+    <div ref={formRef} className="bg-gray-800 border border-gray-600 rounded-xl p-4 space-y-3">
       <h3 className="text-sm font-semibold text-white">Edit Task</h3>
       <input type="text" placeholder="Task title" value={form.title}
         onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
@@ -351,6 +405,8 @@ export default function TaskList() {
   const [rulesTodo, setRulesTodo] = useState(null)
   const [showHistory, setShowHistory] = useState(false)
   const [error, setError] = useState(null)
+  const [scrollToId, setScrollToId] = useState(null)
+  const newItemRef = useRef(null)
 
   // today's date string YYYY-MM-DD in LOCAL time — must match Python's date.today() on the server
   const d = new Date()
@@ -379,12 +435,25 @@ export default function TaskList() {
 
   useEffect(() => { load() }, [])
 
+  useEffect(() => {
+    if (!scrollToId) return
+    const t = setTimeout(() => {
+      newItemRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setScrollToId(null)
+    }, 80)
+    return () => clearTimeout(t)
+  }, [scrollToId])
+
   const handleCreate = async (form) => {
     try {
       const saved = await createTodo(form)
       setShowForm(false)
       await load()
-      if (saved.scoring_type !== 'boolean' && saved.scoring_type !== 'no_rule') setRulesTodo(saved)
+      if (saved.scoring_type !== 'boolean' && saved.scoring_type !== 'no_rule') {
+        setRulesTodo(saved)
+      } else {
+        setScrollToId(saved.id)
+      }
     } catch {
       setError('Failed to create task.')
     }
@@ -577,16 +646,15 @@ export default function TaskList() {
             )
             return (
               <div key={todo.id}
+                ref={scrollToId === todo.id ? newItemRef : null}
                 data-drag-idx={idx}
                 draggable={showReorder && !isExpanded}
                 onDragStart={showReorder ? (e) => handleDragStart(e, idx) : undefined}
                 onDragOver={showReorder  ? (e) => handleDragOver(e, idx)  : undefined}
                 onDrop={showReorder      ? (e) => handleDrop(e, idx)      : undefined}
                 onDragEnd={showReorder   ? handleDragEnd                  : undefined}
-                onTouchStart={showReorder ? (e) => handleTouchStart(e, idx) : undefined}
                 onTouchMove={showReorder  ? handleTouchMove                 : undefined}
                 onTouchEnd={showReorder   ? handleTouchEnd                  : undefined}
-                style={showReorder ? { touchAction: 'none' } : undefined}
                 className={`transition-colors
                   ${isDropTarget
                     ? 'border-t-2 border-t-blue-500 bg-blue-950/20'
@@ -595,61 +663,107 @@ export default function TaskList() {
                   ${todo.status === 'skipped' ? 'opacity-50' : ''}
                 `}>
 
-                <div className="flex items-start gap-3 px-4 lg:px-6 py-3 lg:py-4">
-                  {showReorder && (
-                    <div className="flex flex-col items-center gap-0.5 flex-shrink-0 select-none mt-0.5">
-                      <span title="Drag to reorder"
-                        className="text-gray-500 hover:text-gray-300 cursor-grab active:cursor-grabbing text-base leading-none mb-0.5">
-                        ⠿
-                      </span>
-                      <button onClick={() => moveTodo(idx, -1)} disabled={idx === 0}
-                        title="Move up"
-                        className="text-gray-600 hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed leading-none text-xs transition-colors">▲</button>
-                      <button onClick={() => moveTodo(idx, 1)} disabled={idx === filteredTodos.length - 1}
-                        title="Move down"
-                        className="text-gray-600 hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed leading-none text-xs transition-colors">▼</button>
-                    </div>
-                  )}
+                <div className="px-4 lg:px-6 py-3 lg:py-4">
+                  {/* Top row: drag handle + dot + content (+ desktop-only buttons) */}
+                  <div className="flex items-start gap-3">
+                    {showReorder && (
+                      <div
+                        className="flex flex-col items-center gap-0.5 flex-shrink-0 select-none mt-0.5"
+                        onTouchStart={(e) => handleTouchStart(e, idx)}
+                        style={{ touchAction: 'none' }}
+                      >
+                        <span title="Drag to reorder"
+                          className="text-gray-500 hover:text-gray-300 cursor-grab active:cursor-grabbing text-base leading-none mb-0.5">
+                          ⠿
+                        </span>
+                        <button onClick={() => moveTodo(idx, -1)} disabled={idx === 0}
+                          title="Move up"
+                          className="text-gray-600 hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed leading-none text-xs transition-colors">▲</button>
+                        <button onClick={() => moveTodo(idx, 1)} disabled={idx === filteredTodos.length - 1}
+                          title="Move down"
+                          className="text-gray-600 hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed leading-none text-xs transition-colors">▼</button>
+                      </div>
+                    )}
 
-                  <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${cfg.dot}`} />
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm lg:text-base font-medium ${todo.status === 'done' ? 'line-through text-gray-400' : todo.status === 'skipped' ? 'line-through text-gray-400' : 'text-white'}`}>
-                      {todo.title}
-                    </p>
-                    {todo.description && <p className="text-xs lg:text-sm text-gray-400 mt-0.5 truncate">{todo.description}</p>}
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${cfg.color}`}>{cfg.label}</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${scoringBadge.color}`}>{scoringBadge.label}</span>
-                      {todo.max_points > 0 && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">{todo.max_points} pts</span>}
+                    <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${cfg.dot}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm lg:text-base font-medium ${todo.status === 'done' ? 'line-through text-gray-400' : todo.status === 'skipped' ? 'line-through text-gray-400' : 'text-white'}`}>
+                        {todo.title}
+                      </p>
+                      {todo.description && <p className="text-xs lg:text-sm text-gray-400 mt-0.5 truncate">{todo.description}</p>}
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${scoringBadge.color}`}>{scoringBadge.label}</span>
+                        <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${cfg.color}`}>{cfg.label}</span>
+                        {todo.max_points > 0 && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">{todo.max_points} pts</span>}
+                      </div>
+                    </div>
+
+                    {/* Desktop-only: compact icon buttons on the right */}
+                    <div className="hidden lg:flex items-center gap-1 flex-shrink-0">
+                      {todo.status !== 'done' && (
+                        <button onClick={() => handleStatus(todo, 'done')} title="Mark done"
+                          className="px-2 py-1 text-xs text-gray-400 hover:text-emerald-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">✓</button>
+                      )}
+                      {todo.status !== 'pending' && (
+                        <button onClick={() => handleStatus(todo, 'pending')} title="Move back to pending"
+                          className="px-2 py-1 text-xs text-gray-400 hover:text-yellow-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">↩</button>
+                      )}
+                      {todo.status === 'pending' && (
+                        <button onClick={() => handleStatus(todo, 'skipped')} title="Skip"
+                          className="px-2 py-1 text-xs text-gray-400 hover:text-gray-300 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">–</button>
+                      )}
+                      <button
+                        onClick={() => setRulesTodo(showRules ? null : todo)}
+                        title="Scoring rules"
+                        className={`px-2 py-1 text-xs bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${showRules ? 'text-white' : 'text-gray-400 hover:text-white'}`}>
+                        Rules
+                      </button>
+                      <button onClick={() => setEditingTodo(todo)} title="Edit task"
+                        className="px-2 py-1 text-xs text-gray-400 hover:text-blue-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M13.586 3.586a2 2 0 112.828 2.828l-9 9A2 2 0 016 16H4a1 1 0 01-1-1v-2a2 2 0 01.586-1.414l9-9z" />
+                        </svg>
+                      </button>
+                      <button onClick={() => handleDelete(todo)}
+                        className="px-2 py-1 text-xs text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">✕</button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
+
+                  {/* Mobile-only: full-width labelled action strip */}
+                  <div className="flex lg:hidden items-center gap-1.5 mt-2.5 pt-2 border-t border-gray-800/60">
                     {todo.status !== 'done' && (
-                      <button onClick={() => handleStatus(todo, 'done')} title="Mark done"
-                        className="px-2 py-1 text-xs text-gray-400 hover:text-emerald-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">✓</button>
+                      <button onClick={() => handleStatus(todo, 'done')}
+                        className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-medium text-emerald-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                        <span>✓</span><span>Done</span>
+                      </button>
                     )}
                     {todo.status !== 'pending' && (
-                      <button onClick={() => handleStatus(todo, 'pending')} title="Move back to pending"
-                        className="px-2 py-1 text-xs text-gray-400 hover:text-yellow-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">↩</button>
+                      <button onClick={() => handleStatus(todo, 'pending')}
+                        className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-medium text-yellow-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                        <span>↩</span><span>Reopen</span>
+                      </button>
                     )}
                     {todo.status === 'pending' && (
-                      <button onClick={() => handleStatus(todo, 'skipped')} title="Skip"
-                        className="px-2 py-1 text-xs text-gray-400 hover:text-gray-300 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">–</button>
+                      <button onClick={() => handleStatus(todo, 'skipped')}
+                        className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs text-gray-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                        <span>–</span><span>Skip</span>
+                      </button>
                     )}
                     <button
                       onClick={() => setRulesTodo(showRules ? null : todo)}
-                      title="Scoring rules"
-                      className={`px-2 py-1 text-xs bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${showRules ? 'text-white' : 'text-gray-400 hover:text-white'}`}>
-                      Rules
+                      className={`flex-1 flex items-center justify-center gap-1 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${showRules ? 'text-white font-medium' : 'text-gray-400'}`}>
+                      <span>⚙</span><span>Rules</span>
                     </button>
-                    <button onClick={() => setEditingTodo(todo)} title="Edit task"
-                      className="px-2 py-1 text-xs text-gray-400 hover:text-blue-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                    <button onClick={() => setEditingTodo(todo)}
+                      className="flex-1 flex items-center justify-center py-1.5 text-xs text-gray-400 hover:text-blue-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                         <path d="M13.586 3.586a2 2 0 112.828 2.828l-9 9A2 2 0 016 16H4a1 1 0 01-1-1v-2a2 2 0 01.586-1.414l9-9z" />
                       </svg>
                     </button>
                     <button onClick={() => handleDelete(todo)}
-                      className="px-2 py-1 text-xs text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">✕</button>
+                      className="flex items-center justify-center px-3 py-1.5 text-xs text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                      ✕
+                    </button>
                   </div>
                 </div>
 

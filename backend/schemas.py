@@ -14,7 +14,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 # ── Shared constrained types ──────────────────────────────────────────────────
-ScoringType = Literal["boolean", "no_rule", "duration", "duration_linear", "time_of_day", "time_of_day_linear"]
+ScoringType = Literal["boolean", "no_rule", "duration", "duration_linear", "time_of_day", "time_of_day_linear", "time_multiplier"]
 RuleCondition = Literal["lte", "gte", "lt", "gt", "eq", "bp"]
 TodoStatus = Literal["pending", "done", "skipped"]
 
@@ -24,7 +24,7 @@ TodoStatus = Literal["pending", "done", "skipped"]
 class ScoringRuleBase(BaseModel):
     condition: RuleCondition
     value: str = Field(..., max_length=20)
-    percentage: int = Field(..., ge=0, le=100)
+    percentage: int = Field(..., ge=0, le=10000)  # >100 used by time_multiplier (stores multiplier×100)
     rule_order: int = Field(0, ge=0)
 
 
@@ -120,7 +120,7 @@ class DailySummary(BaseModel):
 class TodoScoringRuleBase(BaseModel):
     condition: RuleCondition
     value: str = Field(..., max_length=20)
-    percentage: int = Field(..., ge=0, le=100)
+    percentage: int = Field(..., ge=0, le=10000)  # >100 used by time_multiplier (stores multiplier×100)
     rule_order: int = Field(0, ge=0)
 
 
@@ -214,3 +214,35 @@ class TaskEntryOut(BaseModel):
             todo_scoring_type=entry.todo.scoring_type if entry.todo else None,
             todo_display_order=entry.todo.display_order if entry.todo else None,
         )
+
+
+# ── Screen Time ───────────────────────────────────────────────────────────────
+
+class ScreenTimeEntryCreate(BaseModel):
+    entry_date: date
+    start_time: time
+    end_time: time
+    note: Optional[str] = Field(None, max_length=200)
+
+    @field_validator('end_time')
+    @classmethod
+    def end_after_start(cls, end, info):
+        start = info.data.get('start_time')
+        if start is not None:
+            start_mins = start.hour * 60 + start.minute
+            end_mins   = end.hour   * 60 + end.minute
+            if end_mins <= start_mins:
+                raise ValueError('end_time must be after start_time')
+        return end
+
+
+class ScreenTimeEntryOut(BaseModel):
+    id: int
+    entry_date: date
+    start_time: time
+    end_time: time
+    minutes: int
+    note: Optional[str]
+    logged_at: datetime
+
+    model_config = {"from_attributes": True}

@@ -26,11 +26,22 @@ function pctColor(pct) {
   return 'bg-gray-800 text-gray-400'
 }
 
+/** Format minutes as "45m" or "1h 30m" */
+function fmtMins(m) {
+  if (!m || m <= 0) return '0m'
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  const rem = m % 60
+  return rem > 0 ? `${h}h ${rem}m` : `${h}h`
+}
+
 // ─── shared sub-components ───────────────────────────────────────────────────
 
-function SummaryCard({ label, value, sub }) {
+function SummaryCard({ label, value, sub, onClick }) {
   return (
-    <div className="bg-gray-900 rounded-xl p-3 sm:p-4 lg:p-5 flex-1 min-w-0">
+    <div
+      onClick={onClick}
+      className={`bg-gray-900 rounded-xl p-3 sm:p-4 lg:p-5 flex-1 min-w-0 ${onClick ? 'cursor-pointer hover:bg-gray-800 transition-colors' : ''}`}>
       <div className="text-xs sm:text-sm text-gray-400 mb-1">{label}</div>
       <div className="text-lg sm:text-xl lg:text-2xl font-bold text-white truncate">{value}</div>
       {sub && <div className="text-xs sm:text-sm text-gray-500 mt-0.5">{sub}</div>}
@@ -48,7 +59,7 @@ function ErrorState({ message }) {
 
 // ─── WeeklyView ──────────────────────────────────────────────────────────────
 
-function WeeklyView() {
+function WeeklyView({ viewMode, onDayClick }) {
   const today = dayjs().format('YYYY-MM-DD')
   const [weekDate, setWeekDate] = useState(today)
   const [data, setData]         = useState(null)
@@ -90,27 +101,79 @@ function WeeklyView() {
 
       {/* Summary cards */}
       <div className="flex gap-3">
-        <SummaryCard
-          label="Weekly Average"
-          value={`${summary.avg_percentage}%`}
-          sub={`${summary.total_earned} / ${summary.total_max} pts`}
-        />
-        <SummaryCard
-          label="Goals Hit"
-          value={`${summary.days_above_80} / 7`}
-          sub="days ≥ 80%"
-        />
-        <SummaryCard
-          label="Best Day"
-          value={summary.best_day ? dayjs(summary.best_day).format('ddd D') : '—'}
-          sub={summary.best_day ? `${summary.best_day_pct}%` : ''}
-        />
-        {summary.total_gap_minutes > 0 && (
-          <SummaryCard
-            label="Unutilized Time"
-            value={`${summary.total_gap_minutes} min`}
-            sub={`${summary.days_with_gaps} day${summary.days_with_gaps === 1 ? '' : 's'} with gaps`}
-          />
+        {viewMode === 'pts' ? (
+          <>
+            <SummaryCard
+              label="Weekly Average"
+              value={`${summary.avg_percentage}%`}
+              sub={`${summary.total_earned} / ${summary.total_max} pts`}
+            />
+            <SummaryCard
+              label="Goals Hit"
+              value={`${summary.days_above_80} / 7`}
+              sub="days ≥ 80%"
+            />
+            <SummaryCard
+              label="Best Day"
+              value={summary.best_day ? dayjs(summary.best_day).format('ddd D') : '—'}
+              sub={summary.best_day ? `${summary.best_day_pct}%` : ''}
+              onClick={summary.best_day ? () => onDayClick && onDayClick(summary.best_day) : undefined}
+            />
+            {summary.total_gap_minutes > 0 && (
+              <SummaryCard
+                label="Unutilized Time"
+                value={`${summary.total_gap_minutes} pts`}
+                sub={`${summary.days_with_gaps} day${summary.days_with_gaps === 1 ? '' : 's'} with gaps`}
+              />
+            )}
+            {(summary.total_screen_time_minutes || 0) > 0 && (
+              <SummaryCard
+                label="Screen Time"
+                value={`−${summary.total_screen_time_penalty} pts`}
+                sub={`${summary.total_screen_time_minutes} min wasted`}
+              />
+            )}
+          </>
+        ) : (
+          <>
+            {(() => {
+              const totalLogged = days.reduce((s, d) => s + (d.total_minutes || 0), 0)
+              const totalNet    = days.reduce((s, d) => s + Math.max(0, (d.total_minutes || 0) - (d.gap_minutes || 0)), 0)
+              return (
+                <>
+                  <SummaryCard
+                    label="Logged"
+                    value={fmtMins(totalLogged)}
+                    sub="total this week"
+                  />
+                  <SummaryCard
+                    label="Net Time"
+                    value={fmtMins(totalNet)}
+                    sub="after gaps deducted"
+                  />
+                  <SummaryCard
+                    label="Daily Avg"
+                    value={`${Math.round(totalLogged / 7)} min`}
+                    sub="logged per day"
+                  />
+                  {summary.total_gap_minutes > 0 && (
+                    <SummaryCard
+                      label="Unutilized"
+                      value={`${summary.total_gap_minutes} min`}
+                      sub={`${summary.days_with_gaps} day${summary.days_with_gaps === 1 ? '' : 's'} with gaps`}
+                    />
+                  )}
+                  {(summary.total_screen_time_minutes || 0) > 0 && (
+                    <SummaryCard
+                      label="Screen Time"
+                      value={`${summary.total_screen_time_minutes} min`}
+                      sub={`−${summary.total_screen_time_penalty} pts penalty`}
+                    />
+                  )}
+                </>
+              )
+            })()}
+          </>
         )}
       </div>
 
@@ -122,7 +185,8 @@ function WeeklyView() {
               <th className="text-left px-4 lg:px-6 py-3 lg:py-4 text-gray-400 font-medium w-36 lg:w-48">Habits</th>
               {days.map((d, i) => (
                 <th key={i}
-                  className={`px-2 py-3 text-center font-medium ${d.date === today ? 'text-white' : 'text-gray-300'}`}>
+                  onClick={() => onDayClick && onDayClick(d.date)}
+                  className={`px-2 py-3 text-center font-medium cursor-pointer hover:text-white transition-colors ${d.date === today ? 'text-white' : 'text-gray-300'}`}>
                   <div>{DAY_LABELS[i]}</div>
                   <div className={`text-xs mt-0.5 ${d.date === today ? 'text-blue-400' : 'text-gray-400'}`}>
                     {dayjs(d.date).format('D')}
@@ -138,10 +202,16 @@ function WeeklyView() {
                 {days.map((d, i) => {
                   const hs  = d.habit_scores.find(s => s.habit_id === habit.id)
                   const pct = hs?.pct ?? 0
+                  const cellVal   = viewMode === 'time'
+                    ? (hs?.minutes > 0 ? `${hs.minutes}m` : '—')
+                    : (hs?.done ? `${hs.earned}pt` : '—')
+                  const cellColor = viewMode === 'time'
+                    ? (hs?.minutes > 0 ? pctColor(Math.max(pct, 1)) : 'bg-gray-800 text-gray-400')
+                    : pctColor(pct)
                   return (
                     <td key={i} className="px-2 py-2.5 text-center">
-                      <span className={`inline-block px-2 py-1 rounded text-xs font-medium min-w-[42px] ${pctColor(pct)}`}>
-                        {hs?.done ? `${hs.earned}pt` : '—'}
+                      <span className={`inline-block px-2 py-1 rounded text-xs font-medium min-w-[42px] ${cellColor}`}>
+                        {cellVal}
                       </span>
                     </td>
                   )
@@ -163,10 +233,16 @@ function WeeklyView() {
                     {days.map((d, i) => {
                       const ts  = d.task_scores?.find(s => s.todo_id === todo.id)
                       const pct = ts?.pct ?? 0
+                      const cellVal   = viewMode === 'time'
+                        ? (ts?.minutes > 0 ? `${ts.minutes}m` : '—')
+                        : (ts?.done ? `${ts.earned}pt` : '—')
+                      const cellColor = viewMode === 'time'
+                        ? (ts?.minutes > 0 ? pctColor(Math.max(pct, 1)) : 'bg-gray-800 text-gray-500')
+                        : (ts?.done ? pctColor(pct) : 'bg-gray-800 text-gray-500')
                       return (
                         <td key={i} className="px-2 py-2.5 text-center">
-                          <span className={`inline-block px-2 py-1 rounded text-xs font-medium min-w-[42px] ${ts?.done ? pctColor(pct) : 'bg-gray-800 text-gray-500'}`}>
-                            {ts?.done ? `${ts.earned}pt` : '—'}
+                          <span className={`inline-block px-2 py-1 rounded text-xs font-medium min-w-[42px] ${cellColor}`}>
+                            {cellVal}
                           </span>
                         </td>
                       )
@@ -183,7 +259,7 @@ function WeeklyView() {
                 <td key={i} className="px-2 py-2 text-center">
                   {d.gap_minutes > 0 ? (
                     <span className="inline-block px-2 py-1 rounded text-xs font-medium min-w-[42px] bg-red-950 text-red-400">
-                      −{d.gap_minutes}m
+                      −{d.gap_minutes}{viewMode === 'time' ? 'm' : 'pt'}
                     </span>
                   ) : (
                     <span className="text-xs text-gray-700">—</span>
@@ -192,33 +268,79 @@ function WeeklyView() {
               ))}
             </tr>
 
-            {/* Net Points row */}
+            {/* Screen Time row */}
+            {days.some(d => (d.screen_time_minutes || 0) > 0) && (
+              <tr className="border-t border-gray-700/50">
+                <td className="px-4 lg:px-6 py-2 text-orange-400 font-semibold text-xs uppercase tracking-wider">Screen Time</td>
+                {days.map((d, i) => (
+                  <td key={i} className="px-2 py-2 text-center">
+                    {(d.screen_time_minutes || 0) > 0 ? (
+                      <span className="inline-block px-2 py-1 rounded text-xs font-medium min-w-[42px] bg-orange-950 text-orange-400">
+                        {viewMode === 'time' ? `−${d.screen_time_minutes}m` : `−${d.screen_time_penalty}pt`}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-700">—</span>
+                    )}
+                  </td>
+                ))}
+              </tr>
+            )}
+
+            {/* Net row: pts or logged time */}
             <tr className="border-t border-gray-700/50">
-              <td className="px-4 lg:px-6 py-2 text-gray-400 font-semibold text-xs uppercase tracking-wider">Net Points</td>
+              <td className="px-4 lg:px-6 py-2 text-gray-400 font-semibold text-xs uppercase tracking-wider">
+                {viewMode === 'time' ? 'Logged' : 'Net Points'}
+              </td>
               {days.map((d, i) => (
                 <td key={i} className="px-2 py-2 text-center">
-                  {d.total_max > 0 ? (
-                    <span className="text-xs font-medium text-white">{Math.round(d.adjusted_earned)} pts</span>
+                  {viewMode === 'time' ? (
+                    d.total_minutes > 0
+                      ? <span className="text-xs font-medium text-white">{fmtMins(d.total_minutes)}</span>
+                      : <span className="text-xs text-gray-700">—</span>
                   ) : (
-                    <span className="text-xs text-gray-700">—</span>
+                    d.total_max > 0
+                      ? <span className={`text-xs font-medium tabular-nums ${Math.round(d.adjusted_earned) < 0 ? 'text-red-400' : 'text-white'}`}>
+                          {Math.round(d.adjusted_earned)} pts
+                        </span>
+                      : <span className="text-xs text-gray-700">—</span>
                   )}
                 </td>
               ))}
             </tr>
 
-            {/* Max Points row */}
-            <tr className="border-t border-gray-700/50">
-              <td className="px-4 lg:px-6 py-2 text-gray-400 font-semibold text-xs uppercase tracking-wider">Max Points</td>
-              {days.map((d, i) => (
-                <td key={i} className="px-2 py-2 text-center">
-                  {d.total_max > 0 ? (
-                    <span className="text-xs font-medium text-gray-300">{Math.round(d.total_max)} pts</span>
-                  ) : (
-                    <span className="text-xs text-gray-700">—</span>
-                  )}
-                </td>
-              ))}
-            </tr>
+            {/* Net Time row — time mode only */}
+            {viewMode === 'time' && (
+              <tr className="border-t border-gray-700/50">
+                <td className="px-4 lg:px-6 py-2 text-gray-400 font-semibold text-xs uppercase tracking-wider">Net Time</td>
+                {days.map((d, i) => {
+                  const net = Math.max(0, (d.total_minutes || 0) - (d.gap_minutes || 0))
+                  return (
+                    <td key={i} className="px-2 py-2 text-center">
+                      {net > 0
+                        ? <span className="text-xs font-medium text-emerald-400">{fmtMins(net)}</span>
+                        : <span className="text-xs text-gray-700">—</span>
+                      }
+                    </td>
+                  )
+                })}
+              </tr>
+            )}
+
+            {/* Max Points row — pts mode only */}
+            {viewMode === 'pts' && (
+              <tr className="border-t border-gray-700/50">
+                <td className="px-4 lg:px-6 py-2 text-gray-400 font-semibold text-xs uppercase tracking-wider">Max Points</td>
+                {days.map((d, i) => (
+                  <td key={i} className="px-2 py-2 text-center">
+                    {d.total_max > 0 ? (
+                      <span className="text-xs font-medium text-gray-300">{Math.round(d.total_max)} pts</span>
+                    ) : (
+                      <span className="text-xs text-gray-700">—</span>
+                    )}
+                  </td>
+                ))}
+              </tr>
+            )}
 
             {/* Net % row */}
             <tr className="border-t border-gray-700/50 bg-gray-800/50">
@@ -256,7 +378,7 @@ function WeeklyView() {
 
 // ─── MonthlyView ─────────────────────────────────────────────────────────────
 
-function MonthlyView() {
+function MonthlyView({ viewMode, onDayClick }) {
   const today = dayjs()
   const [year, setYear]       = useState(today.year())
   const [month, setMonth]     = useState(today.month() + 1)
@@ -306,27 +428,79 @@ function MonthlyView() {
 
       {/* Summary cards */}
       <div className="flex gap-3">
-        <SummaryCard
-          label="Monthly Average"
-          value={`${summary.avg_percentage}%`}
-          sub={`${summary.total_earned} / ${summary.total_max} pts`}
-        />
-        <SummaryCard
-          label="Goals Hit"
-          value={`${summary.days_above_80} / ${days.length}`}
-          sub="days ≥ 80%"
-        />
-        <SummaryCard
-          label="Best Day"
-          value={summary.best_day ? dayjs(summary.best_day).format('MMM D') : '—'}
-          sub={summary.best_day ? `${summary.best_day_pct}%` : ''}
-        />
-        {summary.total_gap_minutes > 0 && (
-          <SummaryCard
-            label="Unutilized Time"
-            value={`${summary.total_gap_minutes} min`}
-            sub={`${summary.days_with_gaps} day${summary.days_with_gaps === 1 ? '' : 's'} with gaps`}
-          />
+        {viewMode === 'pts' ? (
+          <>
+            <SummaryCard
+              label="Monthly Average"
+              value={`${summary.avg_percentage}%`}
+              sub={`${summary.total_earned} / ${summary.total_max} pts`}
+            />
+            <SummaryCard
+              label="Goals Hit"
+              value={`${summary.days_above_80} / ${days.length}`}
+              sub="days ≥ 80%"
+            />
+            <SummaryCard
+              label="Best Day"
+              value={summary.best_day ? dayjs(summary.best_day).format('MMM D') : '—'}
+              sub={summary.best_day ? `${summary.best_day_pct}%` : ''}
+              onClick={summary.best_day ? () => onDayClick && onDayClick(summary.best_day) : undefined}
+            />
+            {summary.total_gap_minutes > 0 && (
+              <SummaryCard
+                label="Unutilized Time"
+                value={`${summary.total_gap_minutes} pts`}
+                sub={`${summary.days_with_gaps} day${summary.days_with_gaps === 1 ? '' : 's'} with gaps`}
+              />
+            )}
+            {(summary.total_screen_time_minutes || 0) > 0 && (
+              <SummaryCard
+                label="Screen Time"
+                value={`−${summary.total_screen_time_penalty} pts`}
+                sub={`${summary.total_screen_time_minutes} min wasted`}
+              />
+            )}
+          </>
+        ) : (
+          <>
+            {(() => {
+              const totalLogged = days.reduce((s, d) => s + (d.total_minutes || 0), 0)
+              const totalNet    = days.reduce((s, d) => s + Math.max(0, (d.total_minutes || 0) - (d.gap_minutes || 0)), 0)
+              return (
+                <>
+                  <SummaryCard
+                    label="Logged"
+                    value={fmtMins(totalLogged)}
+                    sub="total this month"
+                  />
+                  <SummaryCard
+                    label="Net Time"
+                    value={fmtMins(totalNet)}
+                    sub="after gaps deducted"
+                  />
+                  <SummaryCard
+                    label="Daily Avg"
+                    value={`${Math.round(totalLogged / days.length)} min`}
+                    sub="logged per day"
+                  />
+                  {summary.total_gap_minutes > 0 && (
+                    <SummaryCard
+                      label="Unutilized"
+                      value={`${summary.total_gap_minutes} pts`}
+                      sub={`${summary.days_with_gaps} day${summary.days_with_gaps === 1 ? '' : 's'} with gaps`}
+                    />
+                  )}
+                  {(summary.total_screen_time_minutes || 0) > 0 && (
+                    <SummaryCard
+                      label="Screen Time"
+                      value={`${summary.total_screen_time_minutes} min`}
+                      sub={`−${summary.total_screen_time_penalty} pts penalty`}
+                    />
+                  )}
+                </>
+              )
+            })()}
+          </>
         )}
       </div>
 
@@ -345,23 +519,33 @@ function MonthlyView() {
           {Array.from({ length: startOffset }).map((_, i) => <div key={`blank-${i}`} />)}
 
           {days.map(d => {
-            const dayNum  = dayjs(d.date).date()
-            const isToday = d.date === today.format('YYYY-MM-DD')
-            const hasPts  = d.total_max > 0
+            const dayNum   = dayjs(d.date).date()
+            const isToday  = d.date === today.format('YYYY-MM-DD')
+            const hasPts   = d.total_max > 0
+            const hasMins  = (d.total_minutes || 0) > 0
+            const active   = viewMode === 'time' ? hasMins : hasPts
+            const cellColor = active
+              ? pctColor(viewMode === 'time' ? Math.max(d.adjusted_percentage, 1) : d.adjusted_percentage)
+              : 'bg-gray-800/40 text-gray-500'
 
             return (
               <div
                 key={d.date}
-                className={`rounded-md sm:rounded-lg p-1 sm:p-2 text-center select-none ${
-                  hasPts ? pctColor(d.adjusted_percentage) : 'bg-gray-800/40 text-gray-500'
-                } ${isToday ? 'ring-2 ring-blue-500' : ''}`}
+                onClick={() => onDayClick && onDayClick(d.date)}
+                className={`rounded-md sm:rounded-lg p-1 sm:p-2 text-center select-none cursor-pointer hover:opacity-80 transition-opacity ${cellColor} ${isToday ? 'ring-2 ring-blue-500' : ''}`}
               >
                 <div className={`text-xs font-semibold leading-tight ${isToday ? 'text-blue-300' : ''}`}>
                   {dayNum}
                 </div>
-                {hasPts && (
+                {hasPts && viewMode === 'pts' && (
                   <>
                     <div className="text-[10px] sm:text-xs mt-0.5 opacity-90 leading-tight">{Math.round(d.adjusted_earned)}pt</div>
+                    <div className="text-[9px] sm:text-[10px] mt-0.5 opacity-80 leading-tight">{d.adjusted_percentage}%</div>
+                  </>
+                )}
+                {viewMode === 'time' && d.total_minutes > 0 && (
+                  <>
+                    <div className="text-[10px] sm:text-xs mt-0.5 opacity-90 leading-tight">{fmtMins(Math.max(0, (d.total_minutes || 0) - (d.gap_minutes || 0)))}</div>
                     <div className="text-[9px] sm:text-[10px] mt-0.5 opacity-80 leading-tight">{d.adjusted_percentage}%</div>
                   </>
                 )}
@@ -387,6 +571,10 @@ function MonthlyView() {
               const s = d.habit_scores.find(s => s.habit_id === habit.id)
               return sum + (s?.earned ?? 0)
             }, 0)
+            const totalMins = days.reduce((sum, d) => {
+              const s = d.habit_scores.find(s => s.habit_id === habit.id)
+              return sum + (s?.minutes ?? 0)
+            }, 0)
             const pct = habit.max > 0 ? Math.round(totalEarned / (habit.max * days.length) * 100) : 0
 
             return (
@@ -401,8 +589,10 @@ function MonthlyView() {
                 {/* Progress bar */}
                 <div className="w-full sm:w-32 flex-shrink-0">
                   <div className="flex justify-between text-xs text-gray-500 mb-1">
-                    <span>{totalEarned.toFixed(0)} pts</span>
-                    <span>{pct}%</span>
+                    {viewMode === 'time'
+                      ? <><span>{fmtMins(totalMins)}</span><span>{pct}%</span></>
+                      : <><span>{totalEarned.toFixed(0)} pts</span><span>{pct}%</span></>
+                    }
                   </div>
                   <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
                     <div
@@ -431,6 +621,10 @@ function MonthlyView() {
               const s = d.task_scores?.find(s => s.todo_id === todo.id)
               return sum + (s?.earned ?? 0)
             }, 0)
+            const totalMins = days.reduce((sum, d) => {
+              const s = d.task_scores?.find(s => s.todo_id === todo.id)
+              return sum + (s?.minutes ?? 0)
+            }, 0)
             const totalMax = daysLogged * todo.max
             const pct = totalMax > 0 ? Math.round(totalEarned / totalMax * 100) : 0
 
@@ -446,8 +640,10 @@ function MonthlyView() {
                 {/* Progress bar */}
                 <div className="w-full sm:w-32 flex-shrink-0">
                   <div className="flex justify-between text-xs text-gray-500 mb-1">
-                    <span>{totalEarned.toFixed(0)} pts</span>
-                    <span>{pct}%</span>
+                    {viewMode === 'time'
+                      ? <><span>{fmtMins(totalMins)}</span><span>{pct}%</span></>
+                      : <><span>{totalEarned.toFixed(0)} pts</span><span>{pct}%</span></>
+                    }
                   </div>
                   <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
                     <div
@@ -469,31 +665,49 @@ function MonthlyView() {
 
 // ─── main page ───────────────────────────────────────────────────────────────
 
-export default function Analytics() {
-  const [view, setView] = useState('weekly')
+export default function Analytics({ onDayClick }) {
+  const [view, setView]         = useState('weekly')
+  const [viewMode, setViewMode] = useState('pts')   // 'pts' | 'time'
 
   return (
     <div className="space-y-4">
-      {/* Header + view toggle */}
-      <div className="flex items-center justify-between">
+      {/* Header + view toggles */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-base font-semibold text-white">Progress</h2>
-        <div className="flex gap-1 bg-gray-900 rounded-lg p-1">
-          {['weekly', 'monthly'].map(v => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className={`px-4 py-1.5 rounded-md text-sm font-medium capitalize transition-colors ${
-                view === v ? 'bg-white text-gray-900' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              {v}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          {/* pts / time toggle */}
+          <div className="flex gap-1 bg-gray-900 rounded-lg p-1">
+            {[['pts', 'Points'], ['time', 'Time']].map(([v, label]) => (
+              <button
+                key={v}
+                onClick={() => setViewMode(v)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  viewMode === v ? 'bg-white text-gray-900' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {/* weekly / monthly toggle */}
+          <div className="flex gap-1 bg-gray-900 rounded-lg p-1">
+            {['weekly', 'monthly'].map(v => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={`px-4 py-1.5 rounded-md text-sm font-medium capitalize transition-colors ${
+                  view === v ? 'bg-white text-gray-900' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {view === 'weekly'  && <WeeklyView  />}
-      {view === 'monthly' && <MonthlyView />}
+      {view === 'weekly'  && <WeeklyView  viewMode={viewMode} onDayClick={onDayClick} />}
+      {view === 'monthly' && <MonthlyView viewMode={viewMode} onDayClick={onDayClick} />}
     </div>
   )
 }

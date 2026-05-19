@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import dayjs from 'dayjs'
 import DailyLog      from './pages/DailyLog'
 import Analytics     from './pages/Analytics'
 import TaskList      from './pages/TaskList'
@@ -13,7 +14,13 @@ function getToken() {
 
 export default function App() {
   const [activeTab, setActiveTab]     = useState('Today')
+  const [logDate, setLogDate]         = useState(dayjs().format('YYYY-MM-DD'))
   const [authenticated, setAuthenticated] = useState(() => Boolean(getToken()))
+
+  function navigateToDate(date) {
+    setLogDate(date)
+    setActiveTab('Today')
+  }
 
   if (!authenticated) {
     return <Login onAuthenticated={() => setAuthenticated(true)} />
@@ -61,8 +68,8 @@ export default function App() {
 
       {/* Content */}
       <main className="max-w-6xl mx-auto px-4 lg:px-8 py-6 lg:py-8">
-        {activeTab === 'Today'     && <DailyLog />}
-        {activeTab === 'Progress'  && <Analytics />}
+        {activeTab === 'Today'     && <DailyLog date={logDate} setDate={setLogDate} />}
+        {activeTab === 'Progress'  && <Analytics onDayClick={navigateToDate} />}
         {activeTab === 'Tasks'     && <TaskList />}
         {activeTab === 'Configure' && <HabitSettings />}
       </main>

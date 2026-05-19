@@ -97,4 +97,18 @@ def calculate_earned_points(habit, entry, rules: list) -> float:
                 return round((rule.percentage / 100) * habit.max_points, 2)
         return 0.0
 
+    if scoring_type == "time_multiplier":
+        mins = entry.duration_minutes
+        if mins is None or mins <= 0:
+            return 0.0
+        for rule in sorted(rules, key=lambda r: r.rule_order):
+            threshold = int(rule.value)
+            if _compare(rule.condition, mins, threshold):
+                multiplier = rule.percentage / 100.0
+                points = multiplier * mins
+                if habit.max_points and habit.max_points > 0:
+                    return round(min(points, habit.max_points), 2)
+                return round(points, 2)
+        return 0.0
+
     return 0.0

@@ -30,7 +30,7 @@ from calendar import monthrange
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session, joinedload
 from database import get_db
-from models import Habit, DailyEntry, DailyTaskEntry
+from models import Habit, DailyEntry, DailyTaskEntry, ScreenTimeEntry
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -61,7 +61,7 @@ def _compute_gap_minutes(habits: list, entries: list, task_entries: list) -> int
         habit = habit_map.get(e.habit_id)
         if not habit:
             continue
-        if habit.scoring_type in ('boolean', 'no_rule'):
+        if habit.scoring_type == 'boolean':
             continue
         start = _time_to_mins(e.start_time)
         end: int | None = None
@@ -78,7 +78,7 @@ def _compute_gap_minutes(habits: list, entries: list, task_entries: list) -> int
         if te.start_time is None:
             continue
         scoring_type = te.todo.scoring_type if te.todo else ''
-        if scoring_type in ('boolean', 'no_rule'):
+        if scoring_type == 'boolean':
             continue
         start = _time_to_mins(te.start_time)
         end: int | None = None
@@ -115,6 +115,7 @@ def _build_days(
     habits: list,
     entries_by_date: dict,
     task_entries_by_date: dict,
+    screen_entries_by_date: dict,
 ) -> tuple[list[dict], list[dict]]:
     """Compute per-day stats from pre-fetched, grouped data (no per-day DB queries).
 
@@ -128,7 +129,8 @@ def _build_days(
         entries = entries_by_date.get(day, [])
         task_entries = task_entries_by_date.get(day, [])
 
-        earned_map = {e.habit_id: float(e.earned_points or 0) for e in entries}
+        earned_map  = {e.habit_id: float(e.earned_points   or 0) for e in entries}
+        minutes_map = {e.habit_id: int(e.duration_minutes or 0) for e in entries}
 
         habit_scores = []
         for h in habits:
@@ -141,13 +143,16 @@ def _build_days(
                 "max": h.max_points,
                 "done": earned > 0,
                 "pct": pct,
+                "minutes": minutes_map.get(h.id, 0),
             })
 
-        task_earned_map: dict[int, float] = {}
+        task_earned_map:   dict[int, float] = {}
+        task_minutes_map: dict[int, int]   = {}
         for e in task_entries:
             tid = e.todo_id
             # SUM across multiple entries for the same todo (multi-session support)
-            task_earned_map[tid] = task_earned_map.get(tid, 0.0) + float(e.earned_points or 0)
+            task_earned_map[tid]   = task_earned_map.get(tid, 0.0)  + float(e.earned_points   or 0)
+            task_minutes_map[tid]  = task_minutes_map.get(tid, 0)   + int(e.duration_minutes  or 0)
             if tid not in todos_seen:
                 todos_seen[tid] = {
                     "id": tid,
@@ -164,6 +169,7 @@ def _build_days(
                 "done": earned > 0,
                 "pct": round(earned / todos_seen[tid]["max"] * 100, 1)
                        if todos_seen[tid]["max"] > 0 else 0.0,
+                "minutes": task_minutes_map.get(tid, 0),
             }
             for tid, earned in task_earned_map.items()
         ]
@@ -176,8 +182,13 @@ def _build_days(
         percentage = round(total_earned / total_max * 100, 1) if total_max > 0 else 0.0
 
         gap_minutes = _compute_gap_minutes(habits, entries, task_entries)
-        adjusted_earned = max(0.0, total_earned - gap_minutes)
-        adjusted_pct = round(adjusted_earned / total_max * 100, 1) if total_max > 0 else 0.0
+        screen_entries = screen_entries_by_date.get(day, [])
+        screen_time_minutes = sum(e.minutes for e in screen_entries)
+        screen_time_penalty = screen_time_minutes * 2
+        adjusted_earned = round(total_earned - gap_minutes - screen_time_penalty, 2)
+        adjusted_pct = round(max(0.0, adjusted_earned) / total_max * 100, 1) if total_max > 0 else 0.0
+        total_minutes = (sum(s["minutes"] for s in habit_scores)
+                         + sum(s["minutes"] for s in task_scores))
 
         days.append({
             "date": day.isoformat(),
@@ -185,8 +196,11 @@ def _build_days(
             "total_max": total_max,
             "percentage": percentage,
             "gap_minutes": gap_minutes,
+            "screen_time_minutes": screen_time_minutes,
+            "screen_time_penalty": screen_time_penalty,
             "adjusted_earned": round(adjusted_earned, 2),
             "adjusted_percentage": adjusted_pct,
+            "total_minutes": total_minutes,
             "habit_scores": habit_scores,
             "task_scores": task_scores,
         })
@@ -194,8 +208,8 @@ def _build_days(
     return days, list(todos_seen.values())
 
 
-def _fetch_period(all_dates: list[date], db: Session) -> tuple[dict, dict]:
-    """Batch-fetch DailyEntry and DailyTaskEntry for all dates — 2 queries total."""
+def _fetch_period(all_dates: list[date], db: Session) -> tuple[dict, dict, dict]:
+    """Batch-fetch DailyEntry, DailyTaskEntry, and ScreenTimeEntry for all dates — 3 queries."""
     entries = (
         db.query(DailyEntry)
         .filter(DailyEntry.entry_date.in_(all_dates))
@@ -207,6 +221,11 @@ def _fetch_period(all_dates: list[date], db: Session) -> tuple[dict, dict]:
         .filter(DailyTaskEntry.entry_date.in_(all_dates))
         .all()
     )
+    screen_entries = (
+        db.query(ScreenTimeEntry)
+        .filter(ScreenTimeEntry.entry_date.in_(all_dates))
+        .all()
+    )
 
     entries_by_date: dict[date, list] = {}
     for e in entries:
@@ -216,7 +235,11 @@ def _fetch_period(all_dates: list[date], db: Session) -> tuple[dict, dict]:
     for e in task_entries:
         task_entries_by_date.setdefault(e.entry_date, []).append(e)
 
-    return entries_by_date, task_entries_by_date
+    screen_entries_by_date: dict[date, list] = {}
+    for e in screen_entries:
+        screen_entries_by_date.setdefault(e.entry_date, []).append(e)
+
+    return entries_by_date, task_entries_by_date, screen_entries_by_date
 
 
 def _period_summary(days: list) -> dict:
@@ -231,6 +254,9 @@ def _period_summary(days: list) -> dict:
     days_above_80 = sum(1 for d in days if d["adjusted_percentage"] >= 80)
     best = max(days, key=lambda d: d["adjusted_percentage"])
     total_gap_minutes = sum(d["gap_minutes"] for d in days)
+    total_screen_time_minutes = sum(d.get("screen_time_minutes", 0) for d in days)
+    total_screen_time_penalty = sum(d.get("screen_time_penalty", 0) for d in days)
+    total_minutes = sum(d["total_minutes"] for d in days)
 
     return {
         "total_earned": total_earned,
@@ -241,6 +267,10 @@ def _period_summary(days: list) -> dict:
         "best_day_pct": best["adjusted_percentage"],
         "total_gap_minutes": total_gap_minutes,
         "days_with_gaps": sum(1 for d in days if d["gap_minutes"] > 0),
+        "total_screen_time_minutes": total_screen_time_minutes,
+        "total_screen_time_penalty": total_screen_time_penalty,
+        "total_minutes": total_minutes,
+        "avg_minutes_per_day": round(total_minutes / len(days), 1) if days else 0.0,
     }
 
 
@@ -264,8 +294,8 @@ def weekly_analytics(date: date = Query(...), db: Session = Depends(get_db)):
         .order_by(Habit.display_order)
         .all()
     )
-    entries_by_date, task_entries_by_date = _fetch_period(all_dates, db)
-    days, todos = _build_days(all_dates, habits, entries_by_date, task_entries_by_date)
+    entries_by_date, task_entries_by_date, screen_entries_by_date = _fetch_period(all_dates, db)
+    days, todos = _build_days(all_dates, habits, entries_by_date, task_entries_by_date, screen_entries_by_date)
 
     return {
         "start_date": monday.isoformat(),
@@ -296,8 +326,8 @@ def monthly_analytics(year: int, month: int, db: Session = Depends(get_db)):
         .order_by(Habit.display_order)
         .all()
     )
-    entries_by_date, task_entries_by_date = _fetch_period(all_dates, db)
-    days, todos = _build_days(all_dates, habits, entries_by_date, task_entries_by_date)
+    entries_by_date, task_entries_by_date, screen_entries_by_date = _fetch_period(all_dates, db)
+    days, todos = _build_days(all_dates, habits, entries_by_date, task_entries_by_date, screen_entries_by_date)
 
     return {
         "year": year,

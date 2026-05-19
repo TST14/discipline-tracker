@@ -16,6 +16,7 @@ const SCORING_TYPES = [
   { value: 'duration_linear',    label: 'Duration (linear — smooth per minute)' },
   { value: 'time_of_day',        label: 'Time of Day (step rules)' },
   { value: 'time_of_day_linear', label: 'Time of Day (linear — smooth per minute)' },
+  { value: 'time_multiplier',    label: 'Time Multiplier (×mins spent)' },
 ]
 
 const CONDITION_LABELS = {
@@ -33,6 +34,7 @@ const SCORING_TYPE_BADGE = {
   duration_linear:    { label: 'Duration (linear)', color: 'bg-violet-900 text-violet-300' },
   time_of_day:        { label: 'Time (step)',       color: 'bg-amber-900 text-amber-300' },
   time_of_day_linear: { label: 'Time (linear)',     color: 'bg-orange-900 text-orange-300' },
+  time_multiplier:    { label: 'Time ×Mult',        color: 'bg-cyan-900 text-cyan-300' },
 }
 
 // ─── RulesEditor ─────────────────────────────────────────────────────────────
@@ -45,11 +47,24 @@ function RulesEditor({ habit, onClose }) {
 
   useEffect(() => {
     getScoringRules(habit.id)
-      .then(r => { setRules(r); setLoading(false) })
+      .then(r => {
+        if (r.length === 0 && habit.scoring_type === 'time_multiplier') {
+          setRules([{ id: null, habit_id: habit.id, condition: 'gte', value: '1', percentage: 100, rule_order: 0 }])
+        } else {
+          setRules(r)
+        }
+        setLoading(false)
+      })
       .catch(() => { setError('Failed to load rules'); setLoading(false) })
   }, [habit.id])
 
   const containerRef = useRef(null)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 80)
+    return () => clearTimeout(t)
+  }, [])
   useEffect(() => {
     const handleOutside = (e) => {
       if (containerRef.current && !containerRef.current.contains(e.target)) onClose()
@@ -147,7 +162,7 @@ function RulesEditor({ habit, onClose }) {
         </>
       )}
 
-      {!isLinear && habit.scoring_type !== 'boolean' && habit.scoring_type !== 'no_rule' && (
+      {!isLinear && habit.scoring_type !== 'boolean' && habit.scoring_type !== 'no_rule' && habit.scoring_type !== 'time_multiplier' && (
         <>
           <p className="text-xs text-gray-500">
             Rules are evaluated top-to-bottom. The first matching rule determines the score %.
@@ -192,6 +207,37 @@ function RulesEditor({ habit, onClose }) {
         </>
       )}
 
+      {habit.scoring_type === 'time_multiplier' && (
+        <>
+          <p className="text-xs text-gray-500">
+            Points = multiplier × minutes logged.
+            {' '}Set Max Points {'>'} 0 to cap the score, or 0 for no cap.
+          </p>
+          <div className="flex items-center gap-3 py-1">
+            <span className="text-xs text-gray-400 flex-shrink-0">Multiplier</span>
+            <select
+              value={rules[0]?.percentage ?? 100}
+              onChange={e => {
+                const pct = Number(e.target.value)
+                if (rules.length === 0) {
+                  setRules([{ id: null, habit_id: habit.id, condition: 'gte', value: '1', percentage: pct, rule_order: 0 }])
+                } else {
+                  updateRule(0, 'percentage', pct)
+                }
+              }}
+              className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-gray-500"
+            >
+              <option value={50}>0.5×</option>
+              <option value={100}>1×</option>
+              <option value={150}>1.5×</option>
+              <option value={200}>2×</option>
+              <option value={300}>3×</option>
+            </select>
+            <span className="text-xs text-gray-500">× minutes spent</span>
+          </div>
+        </>
+      )}
+
       {error && <p className="text-xs text-red-400">{error}</p>}
 
       <div className="flex justify-end gap-2">
@@ -221,6 +267,15 @@ function HabitForm({ initial, onSave, onCancel }) {
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const formRef = useRef(null)
+
+  useEffect(() => {
+    if (!initial) return  // new-habit form is already visible at top — no scroll needed
+    const t = setTimeout(() => {
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 80)
+    return () => clearTimeout(t)
+  }, [])
 
   const submit = async () => {
     if (!form.name.trim()) { setError('Name is required.'); return }
@@ -238,6 +293,7 @@ function HabitForm({ initial, onSave, onCancel }) {
     // draggable={false} + onDragStart stop prevents the parent draggable row from
     // intercepting touch-taps inside inputs on mobile, which would block cursor placement.
     <div
+      ref={formRef}
       className="bg-gray-800 rounded-xl p-4 space-y-3"
       draggable={false}
       onDragStart={e => e.stopPropagation()}
@@ -289,6 +345,8 @@ export default function HabitSettings() {
   const [editingHabit, setEditingHabit] = useState(null)  // habit | 'new' | null
   const [rulesHabit, setRulesHabit] = useState(null)
   const [error, setError] = useState(null)
+  const [scrollToId, setScrollToId] = useState(null)
+  const newItemRef = useRef(null)
 
   const load = async () => {
     try {
@@ -301,13 +359,26 @@ export default function HabitSettings() {
 
   useEffect(() => { load() }, [])
 
+  useEffect(() => {
+    if (!scrollToId) return
+    const t = setTimeout(() => {
+      newItemRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setScrollToId(null)
+    }, 80)
+    return () => clearTimeout(t)
+  }, [scrollToId])
+
   const handleSave = async (form) => {
     const saved = editingHabit === 'new'
       ? await createHabit({ ...form, display_order: habits.length })
       : await updateHabit(editingHabit.id, form)
     setEditingHabit(null)
     await load()
-    if (saved.scoring_type !== 'boolean' && saved.scoring_type !== 'no_rule') setRulesHabit(saved)
+    if (saved.scoring_type !== 'boolean' && saved.scoring_type !== 'no_rule') {
+      setRulesHabit(saved)
+    } else if (editingHabit === 'new') {
+      setScrollToId(saved.id)
+    }
   }
 
   const handleDelete = async (habit) => {
@@ -496,6 +567,7 @@ export default function HabitSettings() {
             return (
               <div
                 key={habit.id}
+                ref={scrollToId === habit.id ? newItemRef : null}
                 data-drag-idx={idx}
                 draggable={!isExpanded}
                 onDragStart={(e) => handleDragStart(e, idx)}

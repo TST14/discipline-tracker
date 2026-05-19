@@ -144,3 +144,22 @@ class DailyTaskEntry(Base):
     earned_points = Column(Numeric(6, 2), nullable=True)
 
     todo = relationship("Todo", back_populates="task_entries")
+
+
+# ── Screen Time ───────────────────────────────────────────────────────────────
+
+class ScreenTimeEntry(Base):
+    """Manually logged wasted screen time for a day.
+
+    Penalty = 2 × minutes, intentionally double the unutilized-time penalty
+    (1 × min) to discourage unnecessary mobile/laptop use.
+    """
+    __tablename__ = "daily_screen_time"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    entry_date = Column(Date,    nullable=False, index=True)
+    start_time = Column(Time,    nullable=False)
+    end_time   = Column(Time,    nullable=False)
+    minutes    = Column(Integer, nullable=False)   # stored as end − start for fast queries
+    note       = Column(String(200), nullable=True)
+    logged_at  = Column(DateTime, server_default=func.now())
