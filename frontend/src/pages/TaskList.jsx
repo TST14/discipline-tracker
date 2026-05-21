@@ -76,8 +76,11 @@ function TodoRulesEditor({ todo, onClose }) {
   const containerRef = useRef(null)
   useEffect(() => {
     const t = setTimeout(() => {
-      containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 80)
+      const el = containerRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      window.scrollTo({ top: Math.max(0, window.scrollY + rect.top - Math.max(0, (window.innerHeight - rect.height) / 2)), behavior: 'smooth' })
+    }, 150)
     return () => clearTimeout(t)
   }, [])
   useEffect(() => {
@@ -285,8 +288,11 @@ function EditTodoForm({ todo, onSave, onCancel }) {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 80)
+      const el = formRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      window.scrollTo({ top: Math.max(0, window.scrollY + rect.top - Math.max(0, (window.innerHeight - rect.height) / 2)), behavior: 'smooth' })
+    }, 150)
     return () => clearTimeout(t)
   }, [])
 
@@ -438,9 +444,13 @@ export default function TaskList() {
   useEffect(() => {
     if (!scrollToId) return
     const t = setTimeout(() => {
-      newItemRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      const el = newItemRef.current
+      if (el) {
+        const rect = el.getBoundingClientRect()
+        window.scrollTo({ top: Math.max(0, window.scrollY + rect.top - Math.max(0, (window.innerHeight - rect.height) / 2)), behavior: 'smooth' })
+      }
       setScrollToId(null)
-    }, 80)
+    }, 150)
     return () => clearTimeout(t)
   }, [scrollToId])
 
