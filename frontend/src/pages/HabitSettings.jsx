@@ -59,15 +59,20 @@ function RulesEditor({ habit, onClose }) {
   }, [habit.id])
 
   const containerRef = useRef(null)
+  const scrolledRef = useRef(false)
   useEffect(() => {
+    // Wait until the rules have loaded — containerRef is null during the
+    // loading early-return, so scrolling before that is a no-op on Vercel.
+    if (loading || scrolledRef.current) return
+    scrolledRef.current = true
     const t = setTimeout(() => {
       const el = containerRef.current
       if (!el) return
       const rect = el.getBoundingClientRect()
       window.scrollTo({ top: Math.max(0, window.scrollY + rect.top - Math.max(0, (window.innerHeight - rect.height) / 2)), behavior: 'smooth' })
-    }, 150)
+    }, 50)
     return () => clearTimeout(t)
-  }, [])
+  }, [loading])
   useEffect(() => {
     const handleOutside = (e) => {
       if (containerRef.current && !containerRef.current.contains(e.target)) onClose()
