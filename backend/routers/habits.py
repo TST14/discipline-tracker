@@ -11,7 +11,7 @@ GET    /habits/{id}/rules     — list scoring rules for a habit
 PUT    /habits/{id}/rules     — replace all rules, then recompute historic entries
 """
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from database import get_db
 from models import Habit, ScoringRule, DailyEntry
 from schemas import HabitCreate, HabitUpdate, HabitOut, ScoringRuleOut, ScoringRuleCreate, ReorderRequest
@@ -39,10 +39,17 @@ def list_habits(active_only: bool = True, db: Session = Depends(get_db)):
     """Return habits ordered by display_order.
     Pass active_only=false to include archived habits.
     """
-    q = db.query(Habit).order_by(Habit.display_order)
+    q = db.query(Habit).options(selectinload(Habit.scoring_rules)).order_by(Habit.display_order)
     if active_only:
         q = q.filter(Habit.is_active == True)
-    return q.all()
+    habits = q.all()
+    result = []
+    for habit in habits:
+        out = HabitOut.model_validate(habit)
+        if habit.scoring_type == 'time_multiplier' and habit.scoring_rules:
+            out.multiplier = habit.scoring_rules[0].percentage
+        result.append(out)
+    return result
 
 
 @router.post("", response_model=HabitOut, status_code=201)

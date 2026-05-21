@@ -59,6 +59,7 @@ class HabitUpdate(HabitBase):
 
 class HabitOut(HabitBase):
     id: int
+    multiplier: Optional[int] = None  # percentage value (e.g. 100 = 1×) for time_multiplier habits
 
     model_config = {"from_attributes": True}
 
@@ -162,6 +163,7 @@ class TodoOut(BaseModel):
     status_changed_date: Optional[date] = None
     display_order: int
     created_at: datetime
+    multiplier: Optional[int] = None  # percentage value (e.g. 100 = 1×) for time_multiplier todos
 
     model_config = {"from_attributes": True}
 

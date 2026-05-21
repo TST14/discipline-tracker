@@ -694,7 +694,11 @@ export default function TaskList() {
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${scoringBadge.color}`}>{scoringBadge.label}</span>
                         <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${cfg.color}`}>{cfg.label}</span>
-                        {todo.max_points > 0 && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">{todo.max_points} pts</span>}
+                        {todo.max_points > 0
+                          ? <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">{todo.max_points} pts</span>
+                          : todo.scoring_type === 'time_multiplier' && todo.multiplier != null
+                            ? <span className="text-xs px-1.5 py-0.5 rounded bg-cyan-900 text-cyan-300">{todo.multiplier / 100}×</span>
+                            : null}
                       </div>
                     </div>
 
@@ -809,7 +813,11 @@ export default function TaskList() {
                         {todo.description && <p className="text-xs lg:text-sm text-gray-500 mt-0.5 truncate">{todo.description}</p>}
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
                           <span className={`text-xs px-1.5 py-0.5 rounded font-medium opacity-60 ${cfg.color}`}>{cfg.label}</span>
-                          {todo.max_points > 0 && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">{todo.max_points} pts</span>}
+                          {todo.max_points > 0
+                            ? <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">{todo.max_points} pts</span>
+                            : todo.scoring_type === 'time_multiplier' && todo.multiplier != null
+                              ? <span className="text-xs px-1.5 py-0.5 rounded bg-cyan-900 text-cyan-300 opacity-60">{todo.multiplier / 100}×</span>
+                              : null}
                           {todo.status_changed_date && (
                             <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300 flex items-center gap-1">
                               📅 {formatDate(todo.status_changed_date)}

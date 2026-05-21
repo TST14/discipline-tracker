@@ -1,6 +1,12 @@
 import dayjs from 'dayjs'
 import ScoreBadge from './ScoreBadge'
 
+function toMins(t) {
+  if (!t) return null
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
+
 const INPUT_CLS =
   'bg-gray-800 border border-gray-700 rounded-lg px-2 lg:px-3 py-1.5 lg:py-2 text-sm text-white ' +
   'focus:outline-none focus:ring-1 focus:ring-gray-500'
@@ -105,7 +111,15 @@ export default function HabitRow({ habit, entry, isSaving, onChange, onClear, on
         </div>
         <input type="time" value={entry.start_time || ''} onChange={e => onChange('start_time', e.target.value)} className={`${INPUT_CLS} flex-1 sm:flex-none sm:w-[90px] lg:w-[110px]`} />
         <input type="time" value={entry.end_time || ''} onChange={e => onChange('end_time', e.target.value)} className={`${INPUT_CLS} flex-1 sm:flex-none sm:w-[90px] lg:w-[110px]`} />
-        <input type="number" min="0" value={entry.duration_minutes ?? ''} onChange={e => onChange('duration_minutes', e.target.value)} placeholder="mins" className={`${INPUT_CLS} w-16 lg:w-24 text-center`} />
+        <input type="number" min="0" value={entry.duration_minutes ?? ''}
+          onChange={e => onChange('duration_minutes', e.target.value)}
+          onBlur={e => {
+            if (!e.target.value && entry.start_time && entry.end_time) {
+              const diff = toMins(entry.end_time) - toMins(entry.start_time)
+              if (diff > 0) onChange('duration_minutes', String(diff))
+            }
+          }}
+          placeholder="mins" className={`${INPUT_CLS} w-16 lg:w-24 text-center`} />
         {/* Score + clear — hidden on mobile (shown above), visible on sm+ */}
         <div className="hidden sm:block w-16 text-right text-sm flex-shrink-0">
           <ScoreBadge earned={entry.earned_points} max={habit.max_points} />

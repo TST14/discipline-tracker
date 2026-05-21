@@ -20,7 +20,7 @@ app behaves correctly regardless of the server's system timezone.
 """
 from datetime import date as ddate, datetime as _dt, time as dtime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from database import get_db
 
 # India Standard Time = UTC+5:30 (no DST, so a fixed offset is always correct)
@@ -100,10 +100,17 @@ def list_todos(status: str | None = Query(None), db: Session = Depends(get_db)):
     """Return todos ordered by display_order.
     Optionally filter by status: pending | done | skipped.
     """
-    q = db.query(Todo).order_by(Todo.display_order)
+    q = db.query(Todo).options(selectinload(Todo.scoring_rules)).order_by(Todo.display_order)
     if status:
         q = q.filter(Todo.status == status)
-    return q.all()
+    todos = q.all()
+    result = []
+    for todo in todos:
+        out = TodoOut.model_validate(todo)
+        if todo.scoring_type == 'time_multiplier' and todo.scoring_rules:
+            out.multiplier = todo.scoring_rules[0].percentage
+        result.append(out)
+    return result
 
 
 @router.post("", response_model=TodoOut, status_code=201)

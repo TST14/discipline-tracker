@@ -191,9 +191,20 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
         const diff = timeToMinutes(updated.end_time) - timeToMinutes(value)
         if (diff > 0) updated.duration_minutes = diff
       }
-      if (field === 'duration_minutes' && updated.start_time && value) {
+      if (field === 'duration_minutes' && value) {
         const dur = parseInt(value, 10)
-        if (!isNaN(dur) && dur > 0) updated.end_time = minutesToTime(timeToMinutes(updated.start_time) + dur)
+        if (!isNaN(dur) && dur > 0) {
+          if (!current.start_time && !current.end_time) {
+            // All 3 fields were empty — auto-fill start from latest end-time
+            const latestEnd = getLatestEndTime(entries, taskEntries, screenEntries)
+            if (latestEnd) {
+              updated.start_time = latestEnd
+              updated.end_time = minutesToTime(timeToMinutes(latestEnd) + dur)
+            }
+          } else if (updated.start_time) {
+            updated.end_time = minutesToTime(timeToMinutes(updated.start_time) + dur)
+          }
+        }
       }
     }
 
@@ -201,7 +212,13 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
     setSaving(prev => ({ ...prev, [habitId]: true }))
     try {
       const saved = await upsertEntry(updated)
-      setEntries(prev => ({ ...prev, [habitId]: saved }))
+      // When editing duration_minutes the backend may recalculate it from
+      // start/end times, which would overwrite the field while the user is
+      // still typing. Preserve the value we sent so the input stays stable.
+      const merged = field === 'duration_minutes'
+        ? { ...saved, duration_minutes: updated.duration_minutes }
+        : saved
+      setEntries(prev => ({ ...prev, [habitId]: merged }))
       setSummary(await getDailySummary(date))
     } catch {
       setError('Failed to save entry.')
@@ -229,9 +246,20 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
         const diff = timeToMinutes(updated.end_time) - timeToMinutes(value)
         if (diff > 0) updated.duration_minutes = diff
       }
-      if (field === 'duration_minutes' && updated.start_time && value) {
+      if (field === 'duration_minutes' && value) {
         const dur = parseInt(value, 10)
-        if (!isNaN(dur) && dur > 0) updated.end_time = minutesToTime(timeToMinutes(updated.start_time) + dur)
+        if (!isNaN(dur) && dur > 0) {
+          if (!taskEntry.start_time && !taskEntry.end_time) {
+            // All 3 fields were empty — auto-fill start from latest end-time
+            const latestEnd = getLatestEndTime(entries, taskEntries, screenEntries)
+            if (latestEnd) {
+              updated.start_time = latestEnd
+              updated.end_time = minutesToTime(timeToMinutes(latestEnd) + dur)
+            }
+          } else if (updated.start_time) {
+            updated.end_time = minutesToTime(timeToMinutes(updated.start_time) + dur)
+          }
+        }
       }
     }
 
@@ -246,7 +274,12 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
         end_time: updated.end_time || null,
         duration_minutes: updated.duration_minutes || null,
       })
-      setTaskEntries(prev => prev.map(t => t.id === taskEntry.id ? saved : t))
+      // Same as habit entries: preserve the sent duration_minutes so the
+      // backend's recalculation from start/end doesn't overwrite mid-edit.
+      const merged = field === 'duration_minutes'
+        ? { ...saved, duration_minutes: updated.duration_minutes }
+        : saved
+      setTaskEntries(prev => prev.map(t => t.id === taskEntry.id ? merged : t))
       setSummary(await getDailySummary(date))
     } catch {
       setError('Failed to save task entry.')
@@ -551,7 +584,11 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
                   <button key={todo.id} onClick={() => pickTodo(todo)}
                     className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-700 transition-colors text-left">
                     <span className="text-sm text-white">{todo.title}</span>
-                    {todo.max_points > 0 && <span className="text-xs text-gray-500 ml-2">{todo.max_points} pts</span>}
+                    {todo.max_points > 0
+                      ? <span className="text-xs text-gray-500 ml-2">{todo.max_points} pts</span>
+                      : todo.scoring_type === 'time_multiplier' && todo.multiplier != null
+                        ? <span className="text-xs text-gray-500 ml-2">{todo.multiplier / 100}×</span>
+                        : null}
                   </button>
                 ))
               )
@@ -648,6 +685,12 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
                           className={`${INPUT_CLS} flex-1 sm:flex-none sm:w-[90px] lg:w-[110px]`} />
                         <input type="number" min="0" value={te.duration_minutes ?? ''}
                           onChange={e => handleTaskFieldChange(te, 'duration_minutes', e.target.value)}
+                          onBlur={e => {
+                            if (!e.target.value && te.start_time && te.end_time) {
+                              const diff = timeToMinutes(te.end_time) - timeToMinutes(te.start_time)
+                              if (diff > 0) handleTaskFieldChange(te, 'duration_minutes', String(diff))
+                            }
+                          }}
                           placeholder="mins" className={`${INPUT_CLS} w-16 lg:w-24 text-center`} />
                         <div className="hidden sm:block text-sm flex-shrink-0"><ScoreBadge earned={te.earned_points} max={te.todo_max_points} /></div>
                         <button onClick={() => handleQuickRegisterTask(te)}

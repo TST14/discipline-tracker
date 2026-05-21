@@ -308,7 +308,7 @@ function HabitForm({ initial, onSave, onCancel }) {
             className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-gray-500" />
         </div>
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Max Points (Weightage)</label>
+          <label className="block text-xs text-gray-400 mb-1">Max Points (0 = untracked)</label>
           <input type="text" inputMode="numeric" pattern="[0-9]*" value={form.max_points}
             onChange={e => {
               const raw = e.target.value.replace(/[^0-9]/g, '')
@@ -633,7 +633,13 @@ export default function HabitSettings() {
                       <span className="text-sm lg:text-base font-medium text-white truncate">{habit.name}</span>
                       <span className={`text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${badge.color}`}>{badge.label}</span>
                     </div>
-                    <div className="text-xs text-gray-400 mt-0.5">Max {habit.max_points} pts</div>
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      {habit.max_points > 0
+                        ? `Max ${habit.max_points} pts`
+                        : habit.scoring_type === 'time_multiplier' && habit.multiplier != null
+                          ? `${habit.multiplier / 100}\u00d7`
+                          : null}
+                    </div>
                     {/* Actions shown below name on mobile */}
                     <div className="sm:hidden mt-2">{actionButtons}</div>
                   </div>
