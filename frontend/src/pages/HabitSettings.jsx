@@ -354,6 +354,7 @@ function HabitForm({ initial, onSave, onCancel }) {
 export default function HabitSettings() {
   const [habits, setHabits] = useState([])
   const [editingHabit, setEditingHabit] = useState(null)  // habit | 'new' | null
+  const [newHabitFormState, setNewHabitFormState] = useState(null)
   const [rulesHabit, setRulesHabit] = useState(null)
   const [error, setError] = useState(null)
   const [scrollToId, setScrollToId] = useState(null)
@@ -384,35 +385,76 @@ export default function HabitSettings() {
   }, [scrollToId])
 
   const handleSave = async (form) => {
-    const saved = editingHabit === 'new'
-      ? await createHabit({ ...form, display_order: habits.length })
-      : await updateHabit(editingHabit.id, form)
+    const originalHabits = [...habits]
+    const isNew = editingHabit === 'new'
+    const tempId = `temp-${Date.now()}`
+    
+    if (isNew) {
+      const tempHabit = {
+        id: tempId,
+        name: form.name,
+        max_points: parseInt(form.max_points, 10) || 0,
+        scoring_type: form.scoring_type || 'boolean',
+        is_active: true,
+        display_order: habits.length,
+      }
+      setHabits(prev => [...prev, tempHabit])
+      setNewHabitFormState(form)
+    } else {
+      setHabits(prev => prev.map(h => h.id === editingHabit.id ? { ...h, ...form } : h))
+    }
+    
+    const originalEditingHabit = editingHabit
     setEditingHabit(null)
-    await load()
-    if (saved.scoring_type !== 'boolean' && saved.scoring_type !== 'no_rule') {
-      setRulesHabit(saved)
-    } else if (editingHabit === 'new') {
-      setScrollToId(saved.id)
+    
+    try {
+      const saved = isNew
+        ? await createHabit({ ...form, display_order: habits.length })
+        : await updateHabit(originalEditingHabit.id, form)
+      
+      if (isNew) {
+        setHabits(prev => prev.map(h => h.id === tempId ? saved : h))
+        setNewHabitFormState(null)
+      } else {
+        setHabits(prev => prev.map(h => h.id === originalEditingHabit.id ? saved : h))
+      }
+      
+      if (saved.scoring_type !== 'boolean' && saved.scoring_type !== 'no_rule') {
+        setRulesHabit(saved)
+      } else if (isNew) {
+        setScrollToId(saved.id)
+      }
+      load()
+    } catch {
+      setError('Failed to save habit.')
+      setHabits(originalHabits)
+      setEditingHabit(originalEditingHabit)
     }
   }
 
   const handleDelete = async (habit) => {
     if (habit.is_active) return  // guard: must be disabled first
     if (!window.confirm(`Delete "${habit.name}"? All entries for this habit will also be deleted.`)) return
+    const originalHabits = [...habits]
+    setHabits(prev => prev.filter(h => h.id !== habit.id))
     try {
       await deleteHabit(habit.id)
-      await load()
+      load()
     } catch {
       setError('Failed to delete habit.')
+      setHabits(originalHabits)
     }
   }
 
   const toggleActive = async (habit) => {
+    const originalHabits = [...habits]
+    setHabits(prev => prev.map(h => h.id === habit.id ? { ...h, is_active: !h.is_active } : h))
     try {
       await updateHabit(habit.id, { ...habit, is_active: !habit.is_active })
-      await load()
+      load()
     } catch {
       setError('Failed to update habit.')
+      setHabits(originalHabits)
     }
   }
 
@@ -537,7 +579,14 @@ export default function HabitSettings() {
       )}
 
       {editingHabit === 'new' && (
-        <HabitForm onSave={handleSave} onCancel={() => setEditingHabit(null)} />
+        <HabitForm
+          initial={newHabitFormState}
+          onSave={handleSave}
+          onCancel={() => {
+            setEditingHabit(null)
+            setNewHabitFormState(null)
+          }}
+        />
       )}
 
       <div className="bg-gray-900 rounded-xl overflow-hidden">
@@ -554,24 +603,27 @@ export default function HabitSettings() {
             // preventing cursor placement inside text fields.
             const isExpanded = (editingHabit && editingHabit !== 'new' && editingHabit.id === habit.id)
                              || rulesHabit?.id === habit.id
+            const isTemp = typeof habit.id === 'string' && habit.id.startsWith('temp-')
             const actionButtons = (
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => setRulesHabit(rulesHabit?.id === habit.id ? null : habit)}
-                  className="px-2.5 py-1.5 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                  disabled={isTemp}
+                  className={`px-2.5 py-1.5 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`}>
                   Rules
                 </button>
                 <button
                   onClick={() => setEditingHabit(habit)}
-                  className="px-2.5 py-1.5 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                  disabled={isTemp}
+                  className={`px-2.5 py-1.5 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`}>
                   Edit
                 </button>
                 <button
                   onClick={() => handleDelete(habit)}
-                  disabled={habit.is_active}
+                  disabled={habit.is_active || isTemp}
                   title={habit.is_active ? 'Disable the habit first to delete it' : 'Delete habit'}
                   className={`px-2.5 py-1.5 text-xs rounded-lg transition-colors ${
-                    habit.is_active
+                    habit.is_active || isTemp
                       ? 'text-gray-700 bg-gray-800 cursor-not-allowed'
                       : 'text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-gray-700'
                   }`}>
@@ -636,7 +688,8 @@ export default function HabitSettings() {
                   {/* Active toggle */}
                   <button
                     onClick={() => toggleActive(habit)}
-                    className={`w-9 h-5 rounded-full transition-colors flex-shrink-0 ${habit.is_active ? 'bg-emerald-500' : 'bg-gray-700'}`}
+                    disabled={isTemp}
+                    className={`w-9 h-5 rounded-full transition-colors flex-shrink-0 ${habit.is_active ? 'bg-emerald-500' : 'bg-gray-700'} ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`}
                     title={habit.is_active ? 'Active — click to disable' : 'Disabled — click to enable'}
                   >
                     <span className={`block w-4 h-4 rounded-full bg-white shadow transition-transform mx-0.5 ${habit.is_active ? 'translate-x-4' : 'translate-x-0'}`} />
@@ -646,6 +699,7 @@ export default function HabitSettings() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm lg:text-base font-medium text-white truncate">{habit.name}</span>
+                      {isTemp && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />}
                       <span className={`text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${badge.color}`}>{badge.label}</span>
                     </div>
                     <div className="text-xs text-gray-400 mt-0.5">

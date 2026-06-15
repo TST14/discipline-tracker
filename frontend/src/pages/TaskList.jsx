@@ -352,8 +352,8 @@ function EditTodoForm({ todo, onSave, onCancel }) {
   )
 }
 
-function AddTodoForm({ onSave, onCancel }) {
-  const [form, setForm] = useState({ title: '', description: '', max_points: '0', scoring_type: 'boolean' })
+function AddTodoForm({ initial, onSave, onCancel }) {
+  const [form, setForm] = useState(initial || { title: '', description: '', max_points: '0', scoring_type: 'boolean' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
@@ -412,6 +412,7 @@ export default function TaskList() {
   const [todos, setTodos] = useState([])   // full list, always unfiltered
   const [filter, setFilter] = useState('all')
   const [showForm, setShowForm] = useState(false)
+  const [newTodoFormState, setNewTodoFormState] = useState(null)
   const [editingTodo, setEditingTodo] = useState(null)
   const [rulesTodo, setRulesTodo] = useState(null)
   const [showHistory, setShowHistory] = useState(false)
@@ -460,47 +461,79 @@ export default function TaskList() {
   }, [scrollToId])
 
   const handleCreate = async (form) => {
+    const tempId = `temp-${Date.now()}`
+    const tempTodo = {
+      id: tempId,
+      title: form.title,
+      description: form.description || '',
+      max_points: parseInt(form.max_points, 10) || 0,
+      scoring_type: form.scoring_type || 'boolean',
+      status: 'pending',
+      status_changed_date: today,
+    }
+    setTodos(prev => [tempTodo, ...prev])
+    setShowForm(false)
+    setNewTodoFormState({
+      title: form.title,
+      description: form.description || '',
+      max_points: String(form.max_points),
+      scoring_type: form.scoring_type,
+    })
     try {
       const saved = await createTodo(form)
-      setShowForm(false)
-      await load()
+      setTodos(prev => prev.map(t => t.id === tempId ? saved : t))
+      setNewTodoFormState(null)
       if (saved.scoring_type !== 'boolean' && saved.scoring_type !== 'no_rule') {
         setRulesTodo(saved)
       } else {
         setScrollToId(saved.id)
       }
+      load()
     } catch {
       setError('Failed to create task.')
+      setTodos(prev => prev.filter(t => t.id !== tempId))
+      setShowForm(true)
     }
   }
 
   const handleEdit = async (id, form) => {
+    const originalTodos = [...todos]
+    setTodos(prev => prev.map(t => t.id === id ? { ...t, ...form } : t))
+    setEditingTodo(null)
     try {
       const saved = await updateTodo(id, form)
-      setEditingTodo(null)
-      await load()
+      setTodos(prev => prev.map(t => t.id === id ? saved : t))
       if (saved.scoring_type !== 'boolean' && saved.scoring_type !== 'no_rule') setRulesTodo(saved)
+      load()
     } catch {
       setError('Failed to update task.')
+      setTodos(originalTodos)
     }
   }
 
   const handleStatus = async (todo, status) => {
+    const prevStatus = todo.status
+    const prevChangedDate = todo.status_changed_date
+    setTodos(prev => prev.map(t => t.id === todo.id ? { ...t, status, status_changed_date: today } : t))
     try {
       await updateTodo(todo.id, { status })
-      await load()
+      load()
     } catch {
       setError('Failed to update status.')
+      setTodos(prev => prev.map(t => t.id === todo.id ? { ...t, status: prevStatus, status_changed_date: prevChangedDate } : t))
     }
   }
 
   const handleDelete = async (todo) => {
     if (!window.confirm(`Delete "${todo.title}"?`)) return
+    const originalTodos = [...todos]
+    setTodos(prev => prev.filter(t => t.id !== todo.id))
     try {
       await deleteTodo(todo.id)
-      await load()
+      load()
     } catch {
       setError('Failed to delete.')
+      setTodos(originalTodos)
     }
   }
 
@@ -620,7 +653,16 @@ export default function TaskList() {
         <div className="bg-red-950 border border-red-800 text-red-300 text-sm rounded-lg px-4 py-3">{error}</div>
       )}
 
-      {showForm && <AddTodoForm onSave={handleCreate} onCancel={() => setShowForm(false)} />}
+      {showForm && (
+        <AddTodoForm
+          initial={newTodoFormState}
+          onSave={handleCreate}
+          onCancel={() => {
+            setShowForm(false)
+            setNewTodoFormState(null)
+          }}
+        />
+      )}
 
       {/* Filter tabs */}
       <div className="flex gap-1 bg-gray-900 rounded-lg p-1 w-fit">
@@ -650,6 +692,7 @@ export default function TaskList() {
             const isEditing = editingTodo?.id === todo.id
             const showRules = rulesTodo?.id === todo.id
             const isExpanded = isEditing || showRules
+            const isTemp = typeof todo.id === 'string' && todo.id.startsWith('temp-')
             if (isEditing) return (
               <div key={todo.id} className="border-b border-gray-800/50 last:border-0 px-4 lg:px-6 py-3">
                 <EditTodoForm
@@ -704,6 +747,7 @@ export default function TaskList() {
                     <div className="flex-1 min-w-0">
                       <p className={`text-sm lg:text-base font-medium ${todo.status === 'done' ? 'line-through text-gray-400' : todo.status === 'skipped' ? 'line-through text-gray-400' : 'text-white'}`}>
                         {todo.title}
+                        {isTemp && <span className="ml-2 w-1.5 h-1.5 inline-block rounded-full bg-blue-400 animate-pulse" />}
                       </p>
                       {todo.description && <p className="text-xs lg:text-sm text-gray-400 mt-0.5 truncate">{todo.description}</p>}
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -720,67 +764,69 @@ export default function TaskList() {
                     {/* Desktop-only: compact icon buttons on the right */}
                     <div className="hidden lg:flex items-center gap-1 flex-shrink-0">
                       {todo.status !== 'done' && (
-                        <button onClick={() => handleStatus(todo, 'done')} title="Mark done"
-                          className="px-2 py-1 text-xs text-gray-400 hover:text-emerald-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">✓</button>
+                        <button onClick={() => handleStatus(todo, 'done')} title="Mark done" disabled={isTemp}
+                          className={`px-2 py-1 text-xs text-gray-400 hover:text-emerald-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`}>✓</button>
                       )}
                       {todo.status !== 'pending' && (
-                        <button onClick={() => handleStatus(todo, 'pending')} title="Move back to pending"
-                          className="px-2 py-1 text-xs text-gray-400 hover:text-yellow-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">↩</button>
+                        <button onClick={() => handleStatus(todo, 'pending')} title="Move back to pending" disabled={isTemp}
+                          className={`px-2 py-1 text-xs text-gray-400 hover:text-yellow-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`}>↩</button>
                       )}
                       {todo.status === 'pending' && (
-                        <button onClick={() => handleStatus(todo, 'skipped')} title="Skip"
-                          className="px-2 py-1 text-xs text-gray-400 hover:text-gray-300 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">–</button>
+                        <button onClick={() => handleStatus(todo, 'skipped')} title="Skip" disabled={isTemp}
+                          className={`px-2 py-1 text-xs text-gray-400 hover:text-gray-300 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`}>–</button>
                       )}
                       <button
                         onClick={() => setRulesTodo(showRules ? null : todo)}
                         title="Scoring rules"
-                        className={`px-2 py-1 text-xs bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${showRules ? 'text-white' : 'text-gray-400 hover:text-white'}`}>
+                        disabled={isTemp}
+                        className={`px-2 py-1 text-xs bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${showRules ? 'text-white' : 'text-gray-400 hover:text-white'} ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`}>
                         Rules
                       </button>
-                      <button onClick={() => setEditingTodo(todo)} title="Edit task"
-                        className="px-2 py-1 text-xs text-gray-400 hover:text-blue-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                      <button onClick={() => setEditingTodo(todo)} title="Edit task" disabled={isTemp}
+                        className={`px-2 py-1 text-xs text-gray-400 hover:text-blue-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`}>
                         <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
                           <path d="M13.586 3.586a2 2 0 112.828 2.828l-9 9A2 2 0 016 16H4a1 1 0 01-1-1v-2a2 2 0 01.586-1.414l9-9z" />
                         </svg>
                       </button>
-                      <button onClick={() => handleDelete(todo)}
-                        className="px-2 py-1 text-xs text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">✕</button>
+                      <button onClick={() => handleDelete(todo)} disabled={isTemp}
+                        className={`px-2 py-1 text-xs text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`}>✕</button>
                     </div>
                   </div>
 
                   {/* Mobile-only: full-width labelled action strip */}
                   <div className="flex lg:hidden items-center gap-1.5 mt-2.5 pt-2 border-t border-gray-800/60">
                     {todo.status !== 'done' && (
-                      <button onClick={() => handleStatus(todo, 'done')}
-                        className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-medium text-emerald-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                      <button onClick={() => handleStatus(todo, 'done')} disabled={isTemp}
+                        className={`flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-medium text-emerald-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`}>
                         <span>✓</span><span>Done</span>
                       </button>
                     )}
                     {todo.status !== 'pending' && (
-                      <button onClick={() => handleStatus(todo, 'pending')}
-                        className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-medium text-yellow-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                      <button onClick={() => handleStatus(todo, 'pending')} disabled={isTemp}
+                        className={`flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-medium text-yellow-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`}>
                         <span>↩</span><span>Reopen</span>
                       </button>
                     )}
                     {todo.status === 'pending' && (
-                      <button onClick={() => handleStatus(todo, 'skipped')}
-                        className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs text-gray-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                      <button onClick={() => handleStatus(todo, 'skipped')} disabled={isTemp}
+                        className={`flex-1 flex items-center justify-center gap-1 py-1.5 text-xs text-gray-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`}>
                         <span>–</span><span>Skip</span>
                       </button>
                     )}
                     <button
                       onClick={() => setRulesTodo(showRules ? null : todo)}
-                      className={`flex-1 flex items-center justify-center gap-1 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${showRules ? 'text-white font-medium' : 'text-gray-400'}`}>
+                      disabled={isTemp}
+                      className={`flex-1 flex items-center justify-center gap-1 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${showRules ? 'text-white font-medium' : 'text-gray-400'} ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`}>
                       <span>⚙</span><span>Rules</span>
                     </button>
-                    <button onClick={() => setEditingTodo(todo)}
-                      className="flex-1 flex items-center justify-center py-1.5 text-xs text-gray-400 hover:text-blue-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                    <button onClick={() => setEditingTodo(todo)} disabled={isTemp}
+                      className={`flex-1 flex items-center justify-center py-1.5 text-xs text-gray-400 hover:text-blue-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`}>
                       <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                         <path d="M13.586 3.586a2 2 0 112.828 2.828l-9 9A2 2 0 016 16H4a1 1 0 01-1-1v-2a2 2 0 01.586-1.414l9-9z" />
                       </svg>
                     </button>
-                    <button onClick={() => handleDelete(todo)}
-                      className="flex items-center justify-center px-3 py-1.5 text-xs text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                    <button onClick={() => handleDelete(todo)} disabled={isTemp}
+                      className={`flex items-center justify-center px-3 py-1.5 text-xs text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`}>
                       ✕
                     </button>
                   </div>

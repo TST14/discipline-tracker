@@ -222,6 +222,15 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
       setSummary(await getDailySummary(date))
     } catch {
       setError('Failed to save entry.')
+      if (current.id) {
+        setEntries(prev => ({ ...prev, [habitId]: current }))
+      } else {
+        setEntries(prev => {
+          const n = { ...prev }
+          delete n[habitId]
+          return n
+        })
+      }
     } finally {
       setSaving(prev => ({ ...prev, [habitId]: false }))
     }
@@ -283,6 +292,7 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
       setSummary(await getDailySummary(date))
     } catch {
       setError('Failed to save task entry.')
+      setTaskEntries(prev => prev.map(t => t.id === taskEntry.id ? taskEntry : t))
     } finally {
       setSavingTask(prev => ({ ...prev, [taskEntry.id]: false }))
     }
@@ -291,47 +301,77 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
   const handleClearEntry = async (habitId) => {
     const entry = entries[habitId]
     if (!entry?.id) return
+    const originalEntry = entries[habitId]
+    setEntries(prev => { const n = { ...prev }; delete n[habitId]; return n })
     setSaving(prev => ({ ...prev, [habitId]: true }))
     try {
       await deleteEntry(entry.id)
-      setEntries(prev => { const n = { ...prev }; delete n[habitId]; return n })
       setSummary(await getDailySummary(date))
     } catch {
       setError('Failed to clear entry.')
+      setEntries(prev => ({ ...prev, [habitId]: originalEntry }))
     } finally {
       setSaving(prev => ({ ...prev, [habitId]: false }))
     }
   }
 
   const pickTodo = async (todo) => {
+    const tempId = `temp-${Date.now()}`
+    const tempEntry = {
+      id: tempId,
+      todo_id: todo.id,
+      todo_title: todo.title,
+      todo_max_points: todo.max_points,
+      todo_scoring_type: todo.scoring_type,
+      entry_date: date,
+      start_time: null,
+      end_time: null,
+      duration_minutes: null,
+      earned_points: 0,
+    }
+    setTaskEntries(prev => [...prev, tempEntry])
+    setShowTaskPicker(false)
     try {
       const saved = await upsertTaskEntry({ todo_id: todo.id, entry_date: date })
-      setTaskEntries(prev => [...prev, saved])
-      // Don't remove from pendingTodos — a pending task can be logged multiple times
-      setShowTaskPicker(false)
+      setTaskEntries(prev => prev.map(t => t.id === tempId ? saved : t))
       setSummary(await getDailySummary(date))
     } catch {
       setError('Failed to add task.')
+      setTaskEntries(prev => prev.filter(t => t.id !== tempId))
     }
   }
 
   const removeTaskEntry = async (taskEntry) => {
+    const originalTaskEntries = [...taskEntries]
+    setTaskEntries(prev => prev.filter(t => t.id !== taskEntry.id))
     try {
       await deleteTaskEntry(taskEntry.id)
-      await load()
+      setSummary(await getDailySummary(date))
     } catch {
       setError('Failed to remove task.')
+      setTaskEntries(originalTaskEntries)
     }
   }
 
   // Shared save logic for screen time (used by auto-save and quick-register).
   const saveScreenTime = async (start_time, end_time, note) => {
+    const tempId = `temp-${Date.now()}`
+    const tempEntry = {
+      id: tempId,
+      entry_date: date,
+      start_time,
+      end_time,
+      note: note || '',
+      minutes: timeToMinutes(end_time) - timeToMinutes(start_time),
+    }
+    setScreenEntries(prev => [...prev, tempEntry])
     setScreenSaving(true)
     try {
       const saved = await addScreenTime({ entry_date: date, start_time, end_time, note: note || null })
-      setScreenEntries(prev => [...prev, saved])
+      setScreenEntries(prev => prev.map(e => e.id === tempId ? saved : e))
     } catch {
       setError('Failed to log screen time.')
+      setScreenEntries(prev => prev.filter(e => e.id !== tempId))
     } finally {
       setScreenSaving(false)
     }
@@ -348,11 +388,13 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
   }
 
   const handleDeleteScreenTime = async (id) => {
+    const originalScreenEntries = [...screenEntries]
+    setScreenEntries(prev => prev.filter(e => e.id !== id))
     try {
       await deleteScreenTime(id)
-      setScreenEntries(prev => prev.filter(e => e.id !== id))
     } catch {
       setError('Failed to delete screen time entry.')
+      setScreenEntries(originalScreenEntries)
     }
   }
 
@@ -372,13 +414,23 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
     const { id, start_time, end_time, note } = editingScreen
     if (!id) return
     if (start_time && end_time && timeToMinutes(end_time) > timeToMinutes(start_time)) {
+      const originalScreenEntries = [...screenEntries]
+      const updatedTemp = {
+        id,
+        entry_date: date,
+        start_time,
+        end_time,
+        note: note || '',
+        minutes: timeToMinutes(end_time) - timeToMinutes(start_time),
+      }
+      setScreenEntries(prev => prev.map(e => e.id === id ? updatedTemp : e))
+      cancelEditScreen()
       try {
         const updated = await updateScreenTime(id, { entry_date: date, start_time, end_time, note: note || null })
         setScreenEntries(prev => prev.map(e => e.id === id ? updated : e))
-        cancelEditScreen()
       } catch {
         setError('Failed to update screen time entry.')
-        // keep in edit mode so the user can retry
+        setScreenEntries(originalScreenEntries)
       }
     } else {
       cancelEditScreen()
@@ -418,6 +470,15 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
       setSummary(await getDailySummary(date))
     } catch {
       setError('Failed to save entry.')
+      if (current.id) {
+        setEntries(prev => ({ ...prev, [habitId]: current }))
+      } else {
+        setEntries(prev => {
+          const n = { ...prev }
+          delete n[habitId]
+          return n
+        })
+      }
     } finally {
       setSaving(prev => ({ ...prev, [habitId]: false }))
     }
@@ -441,13 +502,19 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
     setTaskEntries(prev => prev.map(t => t.id === taskEntry.id ? updated : t))
     setSavingTask(prev => ({ ...prev, [taskEntry.id]: true }))
     try {
-      const saved = await upsertTaskEntry({        id: taskEntry.id,        todo_id: taskEntry.todo_id, entry_date: date,
-        start_time: updated.start_time, end_time: updated.end_time, duration_minutes: updated.duration_minutes,
+      const saved = await upsertTaskEntry({
+        id: taskEntry.id,
+        todo_id: taskEntry.todo_id,
+        entry_date: date,
+        start_time: updated.start_time,
+        end_time: updated.end_time,
+        duration_minutes: updated.duration_minutes,
       })
       setTaskEntries(prev => prev.map(t => t.id === taskEntry.id ? saved : t))
       setSummary(await getDailySummary(date))
     } catch {
       setError('Failed to save task entry.')
+      setTaskEntries(prev => prev.map(t => t.id === taskEntry.id ? taskEntry : t))
     } finally {
       setSavingTask(prev => ({ ...prev, [taskEntry.id]: false }))
     }
@@ -609,6 +676,7 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
                 const isDuration  = scoringType === 'duration'    || scoringType === 'duration_linear' || scoringType === 'no_rule' || scoringType === 'time_multiplier'
                 const isBoolean   = !isTimeOnly && !isDuration
                 const isDone      = te.start_time != null || te.duration_minutes != null
+                const isTemp      = typeof te.id === 'string' && te.id.startsWith('temp-')
                 const INPUT_CLS   = 'bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-gray-500'
 
                 return (
@@ -620,21 +688,22 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
                     <div className="flex items-center gap-3">
                       <div className="flex flex-1 items-center gap-2 min-w-0">
                         <span className="text-sm lg:text-base font-medium text-white truncate">{te.todo_title}</span>
-                        {savingTask[te.id] && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />}
+                        {(savingTask[te.id] || isTemp) && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />}
                       </div>
                       <button
                         onClick={() => handleTaskFieldChange(te, 'start_time', isDone ? '' : dayjs().format('HH:mm'))}
+                        disabled={isTemp}
                         className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex-shrink-0 ${
                           isDone
                             ? 'bg-emerald-900 text-emerald-300 hover:bg-emerald-800'
                             : 'bg-gray-800 text-gray-500 hover:bg-gray-700 hover:text-white border border-dashed border-gray-700'
-                        }`}
+                        } ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`}
                       >
                         {isDone ? '✓ Done' : 'Mark done'}
                       </button>
                       <div className="text-sm flex-shrink-0"><ScoreBadge earned={te.earned_points} max={te.todo_max_points} /></div>
-                      <button onClick={() => removeTaskEntry(te)}
-                        className="text-gray-600 hover:text-red-400 transition-colors text-sm font-bold flex-shrink-0" title="Remove from today">✕</button>
+                      <button onClick={() => removeTaskEntry(te)} disabled={isTemp}
+                        className={`text-gray-600 hover:text-red-400 transition-colors text-sm font-bold flex-shrink-0 ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`} title="Remove from today">✕</button>
                     </div>
                   )}
 
@@ -643,15 +712,16 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
                     <div className="flex items-center gap-3">
                       <div className="flex flex-1 items-center gap-2 min-w-0">
                         <span className="text-sm lg:text-base font-medium text-white truncate">{te.todo_title}</span>
-                        {savingTask[te.id] && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />}
+                        {(savingTask[te.id] || isTemp) && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />}
                       </div>
                       <span className="text-xs text-gray-500 flex-shrink-0">Time</span>
                       <input type="time" value={te.start_time || ''}
+                        disabled={isTemp}
                         onChange={e => handleTaskFieldChange(te, 'start_time', e.target.value)}
-                        className={`${INPUT_CLS} w-[90px] lg:w-[110px] flex-shrink-0`} />
+                        className={`${INPUT_CLS} w-[90px] lg:w-[110px] flex-shrink-0 ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`} />
                       <div className="text-sm flex-shrink-0"><ScoreBadge earned={te.earned_points} max={te.todo_max_points} /></div>
-                      <button onClick={() => removeTaskEntry(te)}
-                        className="text-gray-600 hover:text-red-400 transition-colors text-sm font-bold flex-shrink-0" title="Remove from today">✕</button>
+                      <button onClick={() => removeTaskEntry(te)} disabled={isTemp}
+                        className={`text-gray-600 hover:text-red-400 transition-colors text-sm font-bold flex-shrink-0 ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`} title="Remove from today">✕</button>
                     </div>
                   )}
 
@@ -662,28 +732,31 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
                       <div className="flex items-center justify-between mb-2 sm:hidden">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-sm lg:text-base font-medium text-white truncate">{te.todo_title}</span>
-                          {savingTask[te.id] && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />}
+                          {(savingTask[te.id] || isTemp) && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />}
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                           <div className="text-sm"><ScoreBadge earned={te.earned_points} max={te.todo_max_points} /></div>
-                          <button onClick={() => handleQuickRegisterTask(te)}
-                            className="text-gray-500 hover:text-yellow-400 transition-colors text-sm flex-shrink-0" title="Quick register: prev end → now">⚡</button>
-                          <button onClick={() => removeTaskEntry(te)}
-                            className="text-gray-600 hover:text-red-400 transition-colors text-sm font-bold" title="Remove from today">✕</button>
+                          <button onClick={() => handleQuickRegisterTask(te)} disabled={isTemp}
+                            className={`text-gray-500 hover:text-yellow-400 transition-colors text-sm flex-shrink-0 ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`} title="Quick register: prev end → now">⚡</button>
+                          <button onClick={() => removeTaskEntry(te)} disabled={isTemp}
+                            className={`text-gray-600 hover:text-red-400 transition-colors text-sm font-bold ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`} title="Remove from today">✕</button>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="hidden sm:flex flex-1 items-center gap-2 min-w-0">
                           <span className="text-sm lg:text-base font-medium text-white truncate">{te.todo_title}</span>
-                          {savingTask[te.id] && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />}
+                          {(savingTask[te.id] || isTemp) && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />}
                         </div>
                         <input type="time" value={te.start_time || ''}
+                          disabled={isTemp}
                           onChange={e => handleTaskFieldChange(te, 'start_time', e.target.value)}
-                          className={`${INPUT_CLS} flex-1 sm:flex-none sm:w-[90px] lg:w-[110px]`} />
+                          className={`${INPUT_CLS} flex-1 sm:flex-none sm:w-[90px] lg:w-[110px] ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`} />
                         <input type="time" value={te.end_time || ''}
+                          disabled={isTemp}
                           onChange={e => handleTaskFieldChange(te, 'end_time', e.target.value)}
-                          className={`${INPUT_CLS} flex-1 sm:flex-none sm:w-[90px] lg:w-[110px]`} />
+                          className={`${INPUT_CLS} flex-1 sm:flex-none sm:w-[90px] lg:w-[110px] ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`} />
                         <input type="number" min="0" value={te.duration_minutes ?? ''}
+                          disabled={isTemp}
                           onChange={e => handleTaskFieldChange(te, 'duration_minutes', e.target.value)}
                           onBlur={e => {
                             if (!e.target.value && te.start_time && te.end_time) {
@@ -691,12 +764,12 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
                               if (diff > 0) handleTaskFieldChange(te, 'duration_minutes', String(diff))
                             }
                           }}
-                          placeholder="mins" className={`${INPUT_CLS} w-16 lg:w-24 text-center`} />
+                          placeholder="mins" className={`${INPUT_CLS} w-16 lg:w-24 text-center ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`} />
                         <div className="hidden sm:block text-sm flex-shrink-0"><ScoreBadge earned={te.earned_points} max={te.todo_max_points} /></div>
-                        <button onClick={() => handleQuickRegisterTask(te)}
-                          className="hidden sm:block text-gray-500 hover:text-yellow-400 transition-colors text-sm flex-shrink-0" title="Quick register: prev end → now">⚡</button>
-                        <button onClick={() => removeTaskEntry(te)}
-                          className="hidden sm:block text-gray-600 hover:text-red-400 transition-colors text-sm font-bold flex-shrink-0" title="Remove from today">✕</button>
+                        <button onClick={() => handleQuickRegisterTask(te)} disabled={isTemp}
+                          className={`hidden sm:block text-gray-500 hover:text-yellow-400 transition-colors text-sm flex-shrink-0 ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`} title="Quick register: prev end → now">⚡</button>
+                        <button onClick={() => removeTaskEntry(te)} disabled={isTemp}
+                          className={`hidden sm:block text-gray-600 hover:text-red-400 transition-colors text-sm font-bold flex-shrink-0 ${isTemp ? 'opacity-40 cursor-not-allowed' : ''}`} title="Remove from today">✕</button>
                       </div>
                     </>
                   )}
