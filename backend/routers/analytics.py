@@ -288,9 +288,11 @@ def weekly_analytics(date: date = Query(...), db: Session = Depends(get_db)):
     monday = date - timedelta(days=date.weekday())
     all_dates = [monday + timedelta(days=i) for i in range(7)]
 
+    from sqlalchemy import or_
+    has_entry_sub = db.query(DailyEntry.habit_id).filter(DailyEntry.entry_date.in_(all_dates)).subquery()
     habits = (
         db.query(Habit)
-        .filter(Habit.is_active == True)
+        .filter(or_(Habit.is_active == True, Habit.id.in_(has_entry_sub)))
         .order_by(Habit.display_order)
         .all()
     )
@@ -320,9 +322,11 @@ def monthly_analytics(year: int, month: int, db: Session = Depends(get_db)):
     _, num_days = monthrange(year, month)
     all_dates = [date(year, month, d) for d in range(1, num_days + 1)]
 
+    from sqlalchemy import or_
+    has_entry_sub = db.query(DailyEntry.habit_id).filter(DailyEntry.entry_date.in_(all_dates)).subquery()
     habits = (
         db.query(Habit)
-        .filter(Habit.is_active == True)
+        .filter(or_(Habit.is_active == True, Habit.id.in_(has_entry_sub)))
         .order_by(Habit.display_order)
         .all()
     )

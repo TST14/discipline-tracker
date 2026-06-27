@@ -11,8 +11,11 @@
  */
 import { api } from './base'
 
-export const getHabits = (activeOnly = true) =>
-  api.get('/habits', { params: { active_only: activeOnly } }).then(r => r.data)
+export const getHabits = (activeOnly = true, date = null) => {
+  const params = { active_only: activeOnly }
+  if (date) params.date = date
+  return api.get('/habits', { params }).then(r => r.data)
+}
 
 export const createHabit = (data) =>
   api.post('/habits', data).then(r => r.data)

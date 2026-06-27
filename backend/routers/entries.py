@@ -126,7 +126,13 @@ def daily_summary(date: ddate = Query(...), db: Session = Depends(get_db)):
     Includes both habit entries and any task entries logged for that date,
     so the score card on the Daily Log page reflects the full day's work.
     """
-    habits = db.query(Habit).filter(Habit.is_active == True).all()
+    from sqlalchemy import or_
+    has_entry_sub = db.query(DailyEntry.habit_id).filter(DailyEntry.entry_date == date).subquery()
+    habits = (
+        db.query(Habit)
+        .filter(or_(Habit.is_active == True, Habit.id.in_(has_entry_sub)))
+        .all()
+    )
     total_max = sum(h.max_points for h in habits)
 
     habit_entries = db.query(DailyEntry).filter(DailyEntry.entry_date == date).all()

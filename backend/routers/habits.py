@@ -10,6 +10,7 @@ DELETE /habits/{id}           — hard delete (cascades entries + rules)
 GET    /habits/{id}/rules     — list scoring rules for a habit
 PUT    /habits/{id}/rules     — replace all rules, then recompute historic entries
 """
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, selectinload
 from database import get_db
@@ -35,13 +36,19 @@ def _recompute_habit_entries(habit: Habit, db: Session) -> None:
 
 
 @router.get("", response_model=list[HabitOut])
-def list_habits(active_only: bool = True, db: Session = Depends(get_db)):
+def list_habits(active_only: bool = True, date: date = None, db: Session = Depends(get_db)):
     """Return habits ordered by display_order.
     Pass active_only=false to include archived habits.
+    If date is provided and active_only is true, includes inactive habits that have entries on that date.
     """
     q = db.query(Habit).options(selectinload(Habit.scoring_rules)).order_by(Habit.display_order)
     if active_only:
-        q = q.filter(Habit.is_active == True)
+        if date is not None:
+            from sqlalchemy import or_
+            has_entry_sub = db.query(DailyEntry.habit_id).filter(DailyEntry.entry_date == date).subquery()
+            q = q.filter(or_(Habit.is_active == True, Habit.id.in_(has_entry_sub)))
+        else:
+            q = q.filter(Habit.is_active == True)
     habits = q.all()
     result = []
     for habit in habits:

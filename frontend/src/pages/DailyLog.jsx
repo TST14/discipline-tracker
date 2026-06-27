@@ -151,7 +151,7 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
     try {
       setError(null)
       const [h, e, s, te, pt, se] = await Promise.all([
-        getHabits(),
+        getHabits(true, date),
         getEntries(date),
         getDailySummary(date),
         getTaskEntries(date),
