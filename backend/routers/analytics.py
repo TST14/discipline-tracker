@@ -42,15 +42,18 @@ def _time_to_mins(t) -> int | None:
     return t.hour * 60 + t.minute
 
 
-def _compute_gap_minutes(habits: list, entries: list, task_entries: list) -> int:
+def _compute_gap_minutes(habits: list, entries: list, task_entries: list, screen_entries: list) -> int:
     """Mirrors frontend computeGaps(): total unutilized minutes between timed activities.
 
     Included on the timeline:
       - Any entry with both start + end/duration  (has a real span)
       - time_of_day / time_of_day_linear entries with start only  (explicit clock anchor)
-    Excluded:
-      - boolean / no_rule 'done' markers  (start_time is just the click timestamp)
-      - incomplete duration entries with start only
+        Excluded:
+            - boolean / no_rule 'done' markers  (start_time is just the click timestamp)
+            - incomplete duration entries with start only
+
+        Screen-time sessions are included as occupied intervals so those minutes are
+        not charged again as unutilized gaps.
     """
     habit_map = {h.id: h for h in habits}
     intervals: list[list[int]] = []
@@ -90,6 +93,13 @@ def _compute_gap_minutes(habits: list, entries: list, task_entries: list) -> int
             intervals.append([start, max(start, end)])
         elif scoring_type in ('time_of_day', 'time_of_day_linear'):
             intervals.append([start, start])
+
+    for se in screen_entries:
+        start = _time_to_mins(se.start_time)
+        end = _time_to_mins(se.end_time)
+        if start is None or end is None:
+            continue
+        intervals.append([start, max(start, end)])
 
     if len(intervals) < 2:
         return 0
@@ -181,8 +191,8 @@ def _build_days(
         total_max = sum(h.max_points for h in habits) + task_max
         percentage = round(total_earned / total_max * 100, 1) if total_max > 0 else 0.0
 
-        gap_minutes = _compute_gap_minutes(habits, entries, task_entries)
         screen_entries = screen_entries_by_date.get(day, [])
+        gap_minutes = _compute_gap_minutes(habits, entries, task_entries, screen_entries)
         screen_time_minutes = sum(e.minutes for e in screen_entries)
         screen_time_penalty = screen_time_minutes * 2
         adjusted_earned = round(total_earned - gap_minutes - screen_time_penalty, 2)

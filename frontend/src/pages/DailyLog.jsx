@@ -36,7 +36,7 @@ function minutesToTime(mins) {
 //   • time_of_day / time_of_day_linear entries with only start_time (explicit clock anchor)
 // Excluded: boolean "done" markers — their start_time is just the click timestamp.
 // no_rule entries ARE included when they have a real end_time or duration.
-function computeGaps(entries, taskEntries, habits) {
+function computeGaps(entries, taskEntries, habits, screenEntries = []) {
   const intervals = []
 
   const habitMap = Object.fromEntries(habits.map(h => [h.id, h]))
@@ -75,6 +75,13 @@ function computeGaps(entries, taskEntries, habits) {
       intervals.push({ start, end: start })
     }
     // boolean / incomplete no_rule (no end/duration yet) → skip
+  })
+
+  screenEntries.forEach(se => {
+    const start = timeToMinutes(se.start_time)
+    const end = timeToMinutes(se.end_time)
+    if (start == null || end == null) return
+    intervals.push({ start, end: Math.max(start, end) })
   })
 
   if (intervals.length < 2) return []
@@ -543,7 +550,7 @@ export default function DailyLog({ date = dayjs().format('YYYY-MM-DD'), setDate 
     return (a.todo_display_order ?? 0) - (b.todo_display_order ?? 0)
   })
 
-  const gaps            = computeGaps(entries, taskEntries, habits)
+  const gaps            = computeGaps(entries, taskEntries, habits, screenEntries)
   const totalGapMinutes = gaps.reduce((sum, g) => sum + g.minutes, 0)
   const totalScreenMins = screenEntries.reduce((sum, e) => sum + e.minutes, 0)
   const totalScreenPenalty = screenTimePenaltyPts(totalScreenMins)
